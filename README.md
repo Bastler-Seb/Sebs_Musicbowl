@@ -1,2 +1,2 @@
 # Sebs_Musicbowl
-A music player written in Python
+A music player written in Python.
