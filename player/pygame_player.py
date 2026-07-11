@@ -24,26 +24,28 @@ class PygamePlayer(PlayerInterface):
     VOLUME_MAX: float = 1.0
     VOLUME_STEP: float = 0.1
     
+    # Class-level flag to track if pygame is initialized
+    _pygame_initialized: bool = False
+    
     def __init__(self):
         """Initialize the pygame player."""
         super().__init__()
-        self._initialized: bool = False
         self._current_file: Optional[Path] = None
         self._volume: float = self.DEFAULT_VOLUME
         self._paused: bool = False
         self._playing: bool = False
         self._state: PlayerState = PlayerState()
         
-        # Initialize pygame mixer
+        # Initialize pygame mixer (only once per class)
         self._initialize_pygame()
     
     def _initialize_pygame(self) -> None:
-        """Initialize pygame and pygame.mixer."""
-        if not self._initialized:
+        """Initialize pygame and pygame.mixer if not already done."""
+        if not PygamePlayer._pygame_initialized:
             try:
                 pygame.init()
                 pygame.mixer.init()
-                self._initialized = True
+                PygamePlayer._pygame_initialized = True
             except pygame.error as e:
                 # Create error state
                 self._state = PlayerState(
@@ -105,7 +107,7 @@ class PygamePlayer(PlayerInterface):
         Returns:
             True if pause was successful, False otherwise.
         """
-        if not self._initialized or not self._playing:
+        if not PygamePlayer._pygame_initialized or not self._playing:
             return False
             
         try:
@@ -126,7 +128,7 @@ class PygamePlayer(PlayerInterface):
         Returns:
             True if resume was successful, False otherwise.
         """
-        if not self._initialized or not self._paused:
+        if not PygamePlayer._pygame_initialized or not self._paused:
             return False
             
         try:
@@ -147,7 +149,7 @@ class PygamePlayer(PlayerInterface):
         Returns:
             True if stop was successful, False otherwise.
         """
-        if not self._initialized:
+        if not PygamePlayer._pygame_initialized:
             return False
             
         try:
@@ -188,7 +190,7 @@ class PygamePlayer(PlayerInterface):
         volume = max(self.VOLUME_MIN, min(self.VOLUME_MAX, volume))
         self._volume = volume
         
-        if self._initialized:
+        if PygamePlayer._pygame_initialized:
             try:
                 pygame.mixer.music.set_volume(volume)
             except pygame.error:
@@ -243,7 +245,7 @@ class PygamePlayer(PlayerInterface):
             The current PlayerState object.
         """
         # Update playing status based on pygame
-        if self._initialized:
+        if PygamePlayer._pygame_initialized:
             busy = pygame.mixer.music.get_busy()
             if busy and not self._paused:
                 self._state.status = PlaybackStatus.PLAYING
@@ -270,8 +272,6 @@ class PygamePlayer(PlayerInterface):
             True if seek was successful, False otherwise.
         """
         # Pygame doesn't have a reliable seek function for pygame.mixer.music
-        # This would require reloading the file and seeking, which isn't straightforward
-        # For now, return False to indicate not supported
         return False
     
     def get_position(self) -> float:
@@ -281,8 +281,6 @@ class PygamePlayer(PlayerInterface):
         Returns:
             Current position in seconds, or 0.0 if not available.
         """
-        # Pygame doesn't provide a direct way to get position
-        # This is a limitation of the pygame backend
         return 0.0
     
     def get_duration(self) -> float:
@@ -292,8 +290,6 @@ class PygamePlayer(PlayerInterface):
         Returns:
             Duration in seconds, or 0.0 if not available.
         """
-        # Pygame doesn't provide an easy way to get duration
-        # This is a limitation of the pygame backend
         return 0.0
     
     def is_playing(self) -> bool:
@@ -309,12 +305,12 @@ class PygamePlayer(PlayerInterface):
         """
         Clean up resources used by the player.
         """
-        if self._initialized:
+        if PygamePlayer._pygame_initialized:
             try:
                 pygame.mixer.music.stop()
                 pygame.mixer.quit()
                 pygame.quit()
-                self._initialized = False
+                PygamePlayer._pygame_initialized = False
             except pygame.error:
                 pass
         

@@ -2,6 +2,8 @@
 Input Utilities Module
 
 Provides cross-platform key reading functionality for terminal applications.
+This is the exact same implementation as the original musicbowl.py to ensure
+compatibility.
 """
 
 import os
@@ -39,8 +41,7 @@ def _read_key_readchar() -> Optional[KeyName]:
                 raise KeyboardInterrupt
             return key.lower()
         return None
-    except (OSError, IOError, Exception):
-        # readchar can raise various exceptions, catch them all
+    except OSError:
         return None
 
 
@@ -83,7 +84,7 @@ def _read_key_msvcrt() -> Optional[KeyName]:
                 return raw.decode('utf-8', errors='ignore').lower()
             except (UnicodeDecodeError, ValueError):
                 return None
-    except (OSError, IOError, Exception):
+    except OSError:
         return None
 
 
@@ -99,7 +100,7 @@ def _read_key_termios() -> Optional[KeyName]:
     fd = sys.stdin.fileno()
     try:
         old = termios.tcgetattr(fd)
-    except (termios.error, OSError, IOError):
+    except (termios.error, OSError):
         return None
 
     try:
@@ -138,12 +139,12 @@ def _read_key_termios() -> Optional[KeyName]:
             raise KeyboardInterrupt
         else:
             return ch.lower()
-    except (OSError, AttributeError, IOError):
+    except (OSError, AttributeError):
         return None
     finally:
         try:
             termios.tcsetattr(fd, termios.TCSADRAIN, old)
-        except (termios.error, OSError, IOError):
+        except (termios.error, OSError):
             pass
 
 

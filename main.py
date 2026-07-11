@@ -59,11 +59,9 @@ def create_ui() -> UIInterface:
 
 def main() -> None:
     """Main entry point."""
-    # Initialize pygame at the application level
-    pygame.init()
-    
     try:
         # Create player and UI instances
+        # Note: Player will initialize pygame when first used
         player = create_player()
         ui = create_ui()
         
