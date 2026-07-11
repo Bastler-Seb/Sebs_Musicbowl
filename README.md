@@ -1,15 +1,17 @@
 # Sebs_Musicbowl
 A simple terminal-based music player written in Python.
 
-## Version 0.1
+## Version 1.0 (Rewrite)
 
-A minimal terminal music player that plays audio files.
+A minimal terminal music player that plays audio files from a specified filepath.
 
 ### Features
-- Play MP3, WAV, OGG, and other supported audio formats
-- Interactive keyboard controls
+- Play MP3, WAV, OGG, FLAC, AAC, M4A, OPUS, and other supported audio formats
+- Interactive keyboard controls while playing
 - Volume adjustment
 - Pause/Resume functionality
+- Terminal file selector UI with navigation
+- Recursive directory scanning for audio files
 
 ### Requirements
 - Python 3.x
@@ -30,10 +32,16 @@ python musicbowl.py /path/to/your/music.mp3
 python musicbowl.py
 ```
 
-### Controls
+### Player Controls
 - **p** - Pause / Resume
 - **s** - Stop
 - **q** - Quit
 - **+** - Increase volume
 - **-** - Decrease volume
 - **h** - Show help/controls
+
+### File Selector Controls
+- **↑/↓** - Navigate files
+- **Enter** - Select file
+- **ESC** - Go up one directory
+- **q** - Quit selector
