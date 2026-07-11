@@ -10,29 +10,20 @@ Usage:
     
     If no filepath is provided, you will be prompted to enter one.
 
-Controls while playing:
+Controls while playing (press Enter after each command):
     p   - Pause / Resume
     s   - Stop
     q   - Quit
     +   - Increase volume
     -   - Decrease volume
+    h   - Show help
 """
 
 import sys
 import os
 import argparse
 import pygame
-import time
 import select
-import tty
-import termios
-
-# Platform-specific imports
-try:
-    import msvcrt
-    WINDOWS = True
-except ImportError:
-    WINDOWS = False
 
 
 def clear_screen():
@@ -45,12 +36,13 @@ def print_controls():
     print("\n" + "=" * 50)
     print("  Sebs_Musicbowl - Terminal Music Player")
     print("=" * 50)
-    print("\nControls:")
+    print("\nControls (press Enter after each command):")
     print("  p  - Pause / Resume")
     print("  s  - Stop")
     print("  q  - Quit")
     print("  +  - Increase volume")
     print("  -  - Decrease volume")
+    print("  h  - Show help")
     print("=" * 50 + "\n")
 
 
@@ -64,30 +56,25 @@ def get_file_path():
         print("Please enter a valid file path.")
 
 
-def get_key_press():
-    """Check if a key was pressed and return it, otherwise return None."""
-    if WINDOWS:
-        if msvcrt.kbhit():
-            return msvcrt.getch().decode('utf-8', errors='ignore')
-        return None
-    else:
-        rlist, _, _ = select.select([sys.stdin], [], [], 0.1)
-        if rlist:
-            return sys.stdin.read(1)
-        return None
+def get_command():
+    """Read a command from stdin with timeout. Returns command or None."""
+    import select
+    rlist, _, _ = select.select([sys.stdin], [], [], 0.1)
+    if rlist:
+        try:
+            # Read a line (user must press Enter)
+            line = sys.stdin.readline().strip()
+            if line:
+                return line
+        except:
+            pass
+    return None
 
 
 def play_music(filepath):
     """Play the music file with interactive controls."""
     # Initialize pygame mixer
     pygame.mixer.init()
-    
-    # Setup terminal for Unix systems
-    old_settings = None
-    if not WINDOWS:
-        fd = sys.stdin.fileno()
-        old_settings = termios.tcgetattr(fd)
-        tty.setraw(fd)
     
     try:
         # Load the music file
@@ -101,8 +88,9 @@ def play_music(filepath):
         pygame.mixer.music.play()
         
         clear_screen()
-        print(f"\nNow Playing: {os.path.basename(filepath)}")
+        print(f"Now Playing: {os.path.basename(filepath)}")
         print(f"Volume: {int(volume * 100)}%")
+        print(f"Status: Playing")
         print_controls()
         
         # Main control loop
@@ -117,37 +105,49 @@ def play_music(filepath):
                 break
             
             # Check for user input
-            key = get_key_press()
+            cmd = get_command()
             
-            if key:
-                if key == 'p':
+            if cmd:
+                if cmd == 'p':
                     if paused:
                         pygame.mixer.music.unpause()
                         paused = False
-                        print("\nResumed")
                     else:
                         pygame.mixer.music.pause()
                         paused = True
-                        print("\nPaused")
-                elif key == 's':
+                    clear_screen()
+                    print(f"Now Playing: {os.path.basename(filepath)}")
+                    print(f"Volume: {int(volume * 100)}%")
+                    print(f"Status: {'Paused' if paused else 'Playing'}")
+                    print_controls()
+                elif cmd == 's':
                     pygame.mixer.music.stop()
                     print("\nStopped")
                     running = False
-                elif key == 'q':
+                elif cmd == 'q':
                     pygame.mixer.music.stop()
                     running = False
-                elif key == '+':
+                elif cmd == '+':
                     volume = min(1.0, volume + 0.1)
                     pygame.mixer.music.set_volume(volume)
-                    print(f"\nVolume: {int(volume * 100)}%")
-                elif key == '-':
+                    clear_screen()
+                    print(f"Now Playing: {os.path.basename(filepath)}")
+                    print(f"Volume: {int(volume * 100)}%")
+                    print(f"Status: {'Paused' if paused else 'Playing'}")
+                    print_controls()
+                elif cmd == '-':
                     volume = max(0.0, volume - 0.1)
                     pygame.mixer.music.set_volume(volume)
-                    print(f"\nVolume: {int(volume * 100)}%")
-                elif key.lower() == 'h':
                     clear_screen()
-                    print(f"\nNow Playing: {os.path.basename(filepath)}")
+                    print(f"Now Playing: {os.path.basename(filepath)}")
                     print(f"Volume: {int(volume * 100)}%")
+                    print(f"Status: {'Paused' if paused else 'Playing'}")
+                    print_controls()
+                elif cmd.lower() == 'h':
+                    clear_screen()
+                    print(f"Now Playing: {os.path.basename(filepath)}")
+                    print(f"Volume: {int(volume * 100)}%")
+                    print(f"Status: {'Paused' if paused else 'Playing'}")
                     print_controls()
             
     except pygame.error as e:
@@ -156,9 +156,6 @@ def play_music(filepath):
     except KeyboardInterrupt:
         print("\nStopped by user.")
     finally:
-        # Restore terminal settings for Unix
-        if not WINDOWS and old_settings is not None:
-            termios.tcsetattr(sys.stdin.fileno(), termios.TCSADRAIN, old_settings)
         pygame.mixer.quit()
 
 
