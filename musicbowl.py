@@ -17,7 +17,6 @@ Controls while playing:
     q       - Quit
     +       - Increase volume
     -       - Decrease volume
-    h       - Show help
 
 File Selector Controls:
     Up/Down arrows   - Navigate items
@@ -30,60 +29,91 @@ import argparse
 import os
 import sys
 import time
+from typing import Optional
 
 import pygame
 
+# =============================================================================
 # Constants
-AUDIO_EXTENSIONS = {'.mp3', '.wav', '.ogg', '.flac', '.aac', '.m4a', '.mp4', '.opus'}
-DEFAULT_VOLUME = 0.7
-VOLUME_STEP = 0.1
-SCROLL_STEP = 10
+# =============================================================================
 
+AUDIO_EXTENSIONS: frozenset[str] = frozenset({
+    '.mp3', '.wav', '.ogg', '.flac', '.aac', '.m4a', '.mp4', '.opus'
+})
 
-# Type aliases
+DEFAULT_VOLUME: float = 0.7
+VOLUME_STEP: float = 0.1
+VOLUME_MIN: float = 0.0
+VOLUME_MAX: float = 1.0
+
+SCROLL_STEP: int = 10
+MIN_WIDTH: int = 50
+
+SELECTOR_CONTROLS: str = "[CONTROLS: Up/Down navigate | Enter/Right select | Left/ESC up | PGUP/PGDN scroll | q quit]"
+
+# =============================================================================
+# Type Aliases
+# =============================================================================
+
 FileItem = dict[str, str]
+KeyName = str
 
+
+# =============================================================================
+# Utility Functions
+# =============================================================================
 
 def clear_screen() -> None:
-    """Clear the terminal screen."""
-    os.system('cls' if os.name == 'nt' else 'clear')
+    """Clear the terminal screen safely without shell injection."""
+    if os.name == 'nt':
+        # Windows: use os.system with hardcoded safe command
+        os.system('cls')
+    else:
+        # Unix-like systems: write ANSI escape code directly
+        sys.stdout.write('\033[H\033[J')
+        sys.stdout.flush()
 
 
 def is_audio_file(filename: str) -> bool:
-    """Check if a file is an audio file based on extension."""
+    """Check if a file is an audio file based on extension.
+    
+    Args:
+        filename: The filename to check (case-insensitive).
+        
+    Returns:
+        True if the file has an audio extension, False otherwise.
+    """
     return filename.lower().endswith(tuple(AUDIO_EXTENSIONS))
 
 
-def get_directory_contents(directory: str) -> list[FileItem]:
-    """Get sorted list of directories and audio files in a directory."""
-    items: list[FileItem] = []
-    try:
-        for item in os.listdir(directory):
-            full_path = os.path.join(directory, item)
-            if os.path.isdir(full_path):
-                items.append({'name': item, 'path': full_path, 'type': 'dir'})
-            elif os.path.isfile(full_path) and is_audio_file(item):
-                items.append({'name': item, 'path': full_path, 'type': 'file'})
-    except PermissionError:
-        return []
-
-    dirs = [i for i in items if i['type'] == 'dir']
-    files = [i for i in items if i['type'] == 'file']
-    dirs.sort(key=lambda x: x['name'].lower())
-    files.sort(key=lambda x: x['name'].lower())
-    return dirs + files
-
-
-def read_key() -> str | None:
-    """Read a single key press for player controls.
+def validate_audio_filepath(filepath: str) -> bool:
+    """Validate that a filepath exists, is a file, and has an audio extension.
     
+    Args:
+        filepath: Path to validate.
+        
     Returns:
-        String representing the key ('up', 'down', 'left', 'right', 'enter', 
-        'esc', 'tab', ' ', or lowercase character) or None if no key pressed.
+        True if valid audio file, False otherwise.
     """
-    # Try readchar first (cross-platform)
+    if not os.path.exists(filepath):
+        return False
+    if not os.path.isfile(filepath):
+        return False
+    return is_audio_file(filepath)
+
+
+# =============================================================================
+# Key Reading
+# =============================================================================
+
+def _read_key_readchar() -> Optional[KeyName]:
+    """Read key using readchar library."""
     try:
         import readchar
+    except (ImportError, ModuleNotFoundError):
+        return None
+
+    try:
         key = readchar.readchar()
         if key == readchar.key.UP:
             return 'up'
@@ -102,92 +132,180 @@ def read_key() -> str | None:
                 raise KeyboardInterrupt
             return key.lower()
         return None
-    except (ImportError, ModuleNotFoundError, OSError):
-        pass
+    except OSError:
+        return None
 
-    # Try msvcrt (Windows)
+
+def _read_key_msvcrt() -> Optional[KeyName]:
+    """Read key using msvcrt (Windows)."""
     try:
         import msvcrt
-        if msvcrt.kbhit():
-            raw = msvcrt.getch()
-            if raw in (b'\xe0', b'\x00'):
-                next_raw = msvcrt.getch()
-                if next_raw == b'H':
-                    return 'up'
-                elif next_raw == b'P':
-                    return 'down'
-                elif next_raw == b'K':
-                    return 'left'
-                elif next_raw == b'M':
-                    return 'right'
-            elif raw in (b'\r', b'\n'):
-                return 'enter'
-            elif raw == b'\x1b':
-                return 'esc'
-            elif raw == b'\t':
-                return 'tab'
-            elif raw == b' ':
-                return ' '
-            elif raw == b'\x03':  # Ctrl+C
-                raise KeyboardInterrupt
-            else:
-                try:
-                    return raw.decode('utf-8', errors='ignore').lower()
-                except (UnicodeDecodeError, ValueError):
-                    return None
+    except (ImportError, ModuleNotFoundError):
         return None
-    except (ImportError, ModuleNotFoundError, OSError):
-        pass
 
-    # Try termios (Unix-like systems)
+    try:
+        if not msvcrt.kbhit():
+            return None
+
+        raw = msvcrt.getch()
+        if raw in (b'\xe0', b'\x00'):
+            # Arrow or function key
+            next_raw = msvcrt.getch()
+            if next_raw == b'H':
+                return 'up'
+            elif next_raw == b'P':
+                return 'down'
+            elif next_raw == b'K':
+                return 'left'
+            elif next_raw == b'M':
+                return 'right'
+            return None
+        elif raw in (b'\r', b'\n'):
+            return 'enter'
+        elif raw == b'\x1b':
+            return 'esc'
+        elif raw == b'\t':
+            return 'tab'
+        elif raw == b' ':
+            return ' '
+        elif raw == b'\x03':  # Ctrl+C
+            raise KeyboardInterrupt
+        else:
+            try:
+                return raw.decode('utf-8', errors='ignore').lower()
+            except (UnicodeDecodeError, ValueError):
+                return None
+    except OSError:
+        return None
+
+
+def _read_key_termios() -> Optional[KeyName]:
+    """Read key using termios (Unix-like systems)."""
     try:
         import tty
         import termios
         import select as select_module
-        fd = sys.stdin.fileno()
+    except (ImportError, ModuleNotFoundError):
+        return None
+
+    fd = sys.stdin.fileno()
+    try:
         old = termios.tcgetattr(fd)
-        try:
-            tty.setraw(fd)
-            sys.stdin.flush()
-            r, _, _ = select_module.select([sys.stdin], [], [], 0.1)
-            if r:
-                ch = sys.stdin.read(1)
-                if ch == '\x1b':
-                    buf = ch
-                    for _ in range(4):
-                        r, _, _ = select_module.select([sys.stdin], [], [], 0.01)
-                        if r:
-                            buf += sys.stdin.read(1)
-                            if buf == '\x1b[A':
-                                return 'up'
-                            elif buf == '\x1b[B':
-                                return 'down'
-                            elif buf == '\x1b[C':
-                                return 'right'
-                            elif buf == '\x1b[D':
-                                return 'left'
-                        else:
-                            break
-                    return 'esc' if len(buf) == 1 else None
-                elif ch in ('\n', '\r'):
-                    return 'enter'
-                elif ch == '\t':
-                    return 'tab'
-                elif ch == ' ':
-                    return ' '
-                elif ch == '\x03':  # Ctrl+C
-                    raise KeyboardInterrupt
+    except (termios.error, OSError):
+        return None
+
+    try:
+        tty.setraw(fd)
+        sys.stdin.flush()
+        r, _, _ = select_module.select([sys.stdin], [], [], 0.05)
+        if not r:
+            return None
+
+        ch = sys.stdin.read(1)
+        if ch == '\x1b':
+            # Escape sequence
+            buf = ch
+            for _ in range(4):
+                r, _, _ = select_module.select([sys.stdin], [], [], 0.01)
+                if r:
+                    buf += sys.stdin.read(1)
+                    if buf == '\x1b[A':
+                        return 'up'
+                    elif buf == '\x1b[B':
+                        return 'down'
+                    elif buf == '\x1b[C':
+                        return 'right'
+                    elif buf == '\x1b[D':
+                        return 'left'
                 else:
-                    return ch.lower()
-        finally:
+                    break
+            return 'esc' if len(buf) == 1 else None
+        elif ch in ('\n', '\r'):
+            return 'enter'
+        elif ch == '\t':
+            return 'tab'
+        elif ch == ' ':
+            return ' '
+        elif ch == '\x03':  # Ctrl+C
+            raise KeyboardInterrupt
+        else:
+            return ch.lower()
+    except (OSError, AttributeError):
+        return None
+    finally:
+        try:
             termios.tcsetattr(fd, termios.TCSADRAIN, old)
-    except (ImportError, ModuleNotFoundError, OSError, AttributeError):
-        pass
-
-    return None
+        except (termios.error, OSError):
+            pass
 
 
-def select_file_ui(start_dir: str | None = None) -> str | None:
+def read_key() -> Optional[KeyName]:
+    """Read a single key press for player controls.
+    
+    Tries multiple methods in order of preference:
+    1. readchar (cross-platform, if installed)
+    2. msvcrt (Windows)
+    3. termios (Unix-like systems)
+    
+    Returns:
+        String representing the key ('up', 'down', 'left', 'right', 'enter',
+        'esc', 'tab', ' ', or lowercase character) or None if no key pressed.
+        
+    Raises:
+        KeyboardInterrupt: If Ctrl+C is pressed.
+    """
+    # Try readchar first (best cross-platform support)
+    result = _read_key_readchar()
+    if result is not None:
+        return result
+
+    # Try msvcrt (Windows)
+    result = _read_key_msvcrt()
+    if result is not None:
+        return result
+
+    # Try termios (Unix-like systems)
+    return _read_key_termios()
+
+
+# =============================================================================
+# File Selection UI
+# =============================================================================
+
+def get_directory_contents(directory: str) -> list[FileItem]:
+    """Get sorted list of directories and audio files in a directory.
+    
+    Args:
+        directory: Path to directory to scan.
+        
+    Returns:
+        List of dicts with 'name', 'path', and 'type' ('dir' or 'file') keys.
+        Directories are listed first, then files, both sorted alphabetically.
+    """
+    items: list[FileItem] = []
+
+    try:
+        for item in os.listdir(directory):
+            full_path = os.path.join(directory, item)
+            if os.path.isdir(full_path):
+                items.append({'name': item, 'path': full_path, 'type': 'dir'})
+            elif os.path.isfile(full_path) and is_audio_file(item):
+                items.append({'name': item, 'path': full_path, 'type': 'file'})
+    except PermissionError:
+        return []
+    except OSError as e:
+        print(f"Warning: Could not read directory {directory!r}: {e}", file=sys.stderr)
+        return []
+
+    # Sort directories first, then files
+    dirs = [i for i in items if i['type'] == 'dir']
+    files = [i for i in items if i['type'] == 'file']
+    dirs.sort(key=lambda x: x['name'].lower())
+    files.sort(key=lambda x: x['name'].lower())
+    return dirs + files
+
+
+def select_file_ui(start_dir: Optional[str] = None) -> Optional[str]:
     """Terminal UI for selecting an audio file with directory tree navigation.
     
     Args:
@@ -202,8 +320,13 @@ def select_file_ui(start_dir: str | None = None) -> str | None:
     if start_dir is None:
         start_dir = os.getcwd()
 
-    if not os.path.isdir(start_dir):
-        start_dir = os.path.dirname(start_dir)
+    # Ensure we have a valid directory
+    while not os.path.isdir(start_dir):
+        parent = os.path.dirname(start_dir)
+        if parent == start_dir:
+            start_dir = os.getcwd()
+            break
+        start_dir = parent
 
     current_dir = start_dir
     selected_index = 0
@@ -227,9 +350,8 @@ def select_file_ui(start_dir: str | None = None) -> str | None:
 
             try:
                 # Draw header
-                controls = "[CONTROLS: Up/Down navigate | Enter select | Left/ESC up | PGUP/PGDN scroll | q quit]"
-                stdscr.addstr(0, 0, controls[:width - 1])
-                separator = "-" * min(width, 50)
+                stdscr.addstr(0, 0, SELECTOR_CONTROLS[:width - 1])
+                separator = "-" * min(width, MIN_WIDTH)
                 stdscr.addstr(1, 0, separator)
                 stdscr.addstr(2, 0, f"Directory: {current_dir}"[:width - 1])
                 stdscr.addstr(3, 0, separator)
@@ -316,8 +438,7 @@ def select_file_ui(start_dir: str | None = None) -> str | None:
                     scroll_position = 0
                 else:
                     return items[selected_index]['path']
-            elif (isinstance(processed_key, str) and processed_key.isdigit() 
-                  and items):
+            elif isinstance(processed_key, str) and processed_key.isdigit() and items:
                 index = int(processed_key)
                 if 1 <= index <= len(items):
                     selected_item = items[index - 1]
@@ -334,30 +455,43 @@ def select_file_ui(start_dir: str | None = None) -> str | None:
         curses.endwin()
 
 
+# =============================================================================
+# Display Functions
+# =============================================================================
+
 def print_controls() -> None:
     """Display the control instructions."""
-    print("\n" + "=" * 50)
+    print("\n" + "=" * MIN_WIDTH)
     print("  Sebs_Musicbowl - Terminal Music Player")
-    print("=" * 50)
+    print("=" * MIN_WIDTH)
     print("\nControls:")
     print("  p  - Pause / Resume")
-    print("  s  - Stop")
+    print("  s  - Stop (return to selection)")
+    print("  Left - Stop (return to selection)")
     print("  q  - Quit")
     print("  +  - Increase volume")
     print("  -  - Decrease volume")
-    print("  h  - Show help")
-    print("=" * 50 + "\n")
-
+    print("=" * MIN_WIDTH + "\n")
 
 
 def refresh_display(filepath: str, volume: float, paused: bool) -> None:
-    """Refresh the player display with current track info."""
+    """Refresh the player display with current track info.
+    
+    Args:
+        filepath: Path to the currently playing file.
+        volume: Current volume level (0.0 to 1.0).
+        paused: Whether playback is paused.
+    """
     clear_screen()
     print(f"Now Playing: {os.path.basename(filepath)}")
     print(f"Volume: {int(volume * 100)}%")
     print(f"Status: {'Paused' if paused else 'Playing'}")
     print_controls()
 
+
+# =============================================================================
+# Music Playback
+# =============================================================================
 
 def play_music(filepath: str) -> bool:
     """Play the music file with interactive controls.
@@ -367,11 +501,19 @@ def play_music(filepath: str) -> bool:
         
     Returns:
         True if user wants to continue selecting files, False to quit.
+        
+    Raises:
+        pygame.error: If there is an error loading the file.
+        KeyboardInterrupt: If user presses Ctrl+C.
     """
-    # Initialize pygame mixer
     pygame.mixer.init()
 
     try:
+        # Validate the file
+        if not validate_audio_filepath(filepath):
+            print(f"Error: Invalid audio file: {filepath}")
+            return True
+
         # Load the music file
         pygame.mixer.music.load(filepath)
 
@@ -384,7 +526,7 @@ def play_music(filepath: str) -> bool:
 
         refresh_display(filepath, volume, False)
 
-        # Main control loop - check keys directly without background thread
+        # Main control loop
         paused = False
 
         while True:
@@ -393,7 +535,7 @@ def play_music(filepath: str) -> bool:
                 print("\nTrack finished.")
                 return True
 
-            # Check for user input directly
+            # Check for user input
             key = read_key()
 
             if key == 'p':
@@ -411,35 +553,36 @@ def play_music(filepath: str) -> bool:
                 pygame.mixer.music.stop()
                 return False
             elif key == '+':
-                volume = min(1.0, volume + VOLUME_STEP)
+                volume = min(VOLUME_MAX, volume + VOLUME_STEP)
                 pygame.mixer.music.set_volume(volume)
                 refresh_display(filepath, volume, paused)
             elif key == '-':
-                volume = max(0.0, volume - VOLUME_STEP)
+                volume = max(VOLUME_MIN, volume - VOLUME_STEP)
                 pygame.mixer.music.set_volume(volume)
                 refresh_display(filepath, volume, paused)
-            elif key == 'h':
-                refresh_display(filepath, volume, paused)
-
             # Small delay to prevent CPU overload
             time.sleep(0.05)
 
     except pygame.error as e:
         print(f"\nError loading file: {e}")
-        print("Please ensure the file is a supported audio format (MP3, WAV, OGG, etc.).")
+        print("Please ensure the file is a supported audio format.")
         return True
     except KeyboardInterrupt:
         print("\nStopped by user.")
+        pygame.mixer.music.stop()
         return False
     finally:
         pygame.mixer.quit()
 
 
+# =============================================================================
+# Main Entry Point
+# =============================================================================
+
 def main() -> None:
     """Main entry point."""
-    # Initialize pygame
     pygame.init()
-    
+
     try:
         parser = argparse.ArgumentParser(
             description='Sebs_Musicbowl - Simple Terminal Music Player'
@@ -457,8 +600,10 @@ def main() -> None:
             if not os.path.exists(args.filepath):
                 print(f"Error: File not found at '{args.filepath}'")
                 sys.exit(1)
-            start_dir = os.path.dirname(args.filepath)
-            # Play the provided file first
+            if not os.path.isfile(args.filepath):
+                print(f"Error: '{args.filepath}' is not a file")
+                sys.exit(1)
+            start_dir = os.path.dirname(os.path.abspath(args.filepath))
             if not play_music(args.filepath):
                 return
         else:
@@ -470,7 +615,7 @@ def main() -> None:
             if filepath is None:
                 print("\nNo file selected. Exiting.")
                 break
-            
+
             start_dir = os.path.dirname(filepath)
             if not play_music(filepath):
                 break
