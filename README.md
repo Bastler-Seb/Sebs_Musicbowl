@@ -14,10 +14,11 @@ A minimal terminal music player that plays audio files.
 ### Requirements
 - Python 3.x
 - pygame library
+- readchar library (recommended for single-key input)
 
 ### Installation
 ```bash
-pip install pygame
+pip install pygame readchar
 ```
 
 ### Usage
