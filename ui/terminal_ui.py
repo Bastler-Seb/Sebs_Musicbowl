@@ -2,7 +2,7 @@
 Terminal UI Implementation
 
 Concrete implementation of UIInterface for terminal-based interaction.
-This includes file selection with curses and playback controls.
+This includes a split-screen layout with file tree on the left and player on the right.
 """
 
 import os
@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Optional
 
 import pygame
+import curses
 
 from player.player_interface import PlayerInterface
 from player.player_state import PlayerState, PlaybackStatus
@@ -32,24 +33,32 @@ VOLUME_MIN: float = 0.0
 VOLUME_MAX: float = 1.0
 SCROLL_STEP: int = 10
 MIN_WIDTH: int = 50
-SELECTOR_CONTROLS: str = "[CONTROLS: Up/Down navigate | Enter/Right select | Left/ESC up | PGUP/PGDN scroll | q quit]"
+
+# Split screen ratio (left: 60%, right: 40%)
+SPLIT_RATIO: float = 0.6
 
 
 class TerminalUI(UIInterface):
     """
     Terminal-based implementation of the UIInterface.
     
-    Handles file selection with curses and playback controls with key reading.
+    Features a split-screen layout with file tree on the left and player on the right.
+    Allows navigation in the file tree even while music is playing.
     """
     
     def __init__(self):
         """Initialize the terminal UI."""
         self._start_dir: Optional[str] = None
         self._current_player: Optional[PlayerInterface] = None
+        self._stdscr: Optional[curses.window] = None
+        self._current_dir: str = ""
+        self._selected_index: int = 0
+        self._scroll_position: int = 0
+        self._items: list[FileItem] = []
     
     def run(self, player: PlayerInterface, start_file: Optional[Path] = None) -> None:
         """
-        Run the main terminal UI loop.
+        Run the main terminal UI loop with split-screen layout.
         
         Args:
             player: The player instance to control.
@@ -57,98 +66,336 @@ class TerminalUI(UIInterface):
         """
         self._current_player = player
         
-        # Main loop for continuous playback
-        self._main_loop(start_file)
+        # Setup curses
+        self._setup_curses()
+        
+        try:
+            # Set initial directory
+            self._current_dir = self._start_dir if self._start_dir else os.getcwd()
+            self._load_items()
+            
+            # If a start file is provided, play it
+            if start_file is not None:
+                if validate_audio_filepath(str(start_file)):
+                    self._current_player.play(start_file)
+            
+            # Main loop
+            self._main_loop()
+        finally:
+            self._cleanup_curses()
     
-    def _play_file(self, file_path: Path) -> bool:
-        """
-        Play a file and handle the playback loop.
+    def _setup_curses(self) -> None:
+        """Initialize curses for split-screen display."""
+        self._stdscr = curses.initscr()
+        curses.cbreak()
+        curses.noecho()
+        curses.curs_set(0)
+        self._stdscr.keypad(True)
+        self._stdscr.timeout(50)  # Non-blocking with 50ms timeout
+    
+    def _cleanup_curses(self) -> None:
+        """Clean up curses resources."""
+        if self._stdscr:
+            curses.nocbreak()
+            curses.echo()
+            self._stdscr.keypad(False)
+            curses.endwin()
+            self._stdscr = None
+    
+    def _load_items(self) -> None:
+        """Load directory contents into self._items."""
+        self._items = get_directory_contents(self._current_dir)
+        self._selected_index = 0
+        self._scroll_position = 0
+    
+    def _get_split_position(self) -> int:
+        """Get the column position for splitting the screen."""
+        if self._stdscr is None:
+            return 40
+        height, width = self._stdscr.getmaxyx()
+        return int(width * SPLIT_RATIO)
+    
+    def _display_split_screen(self) -> None:
+        """Display the split screen with file tree on left and player on right."""
+        if self._stdscr is None:
+            return
         
-        Args:
-            file_path: Path to the file to play.
+        self._stdscr.erase()
+        height, width = self._stdscr.getmaxyx()
+        split_pos = self._get_split_position()
+        
+        # Draw left panel - File Tree
+        self._draw_file_tree(0, 0, height, split_pos)
+        
+        # Draw right panel - Player
+        self._draw_player_panel(split_pos, 0, height, width - split_pos)
+        
+        # Draw separator line
+        if split_pos < width:
+            for y in range(height):
+                try:
+                    self._stdscr.addch(y, split_pos, curses.ACS_VLINE)
+                except curses.error:
+                    pass
+        
+        self._stdscr.refresh()
+    
+    def _draw_file_tree(self, y: int, x: int, height: int, width: int) -> None:
+        """Draw the file tree browser in the left panel."""
+        if width <= 0:
+            return
+        
+        try:
+            # Header
+            header = f" Directory: {self._current_dir[:width-14]} "
+            self._stdscr.addstr(y, x, header[:width])
+            y += 1
             
-        Returns:
-            True if user wants to continue, False to quit.
-        """
-        if not validate_audio_filepath(str(file_path)):
-            self.show_error(f"Error: Invalid audio file: {file_path}")
-            return True
-        
-        # Play the file
-        success = self._current_player.play(file_path)
-        if not success:
-            self.show_error(f"Error: Could not play file: {file_path}")
-            return True
-        
-        # Display initial state
-        state = self._current_player.get_state()
-        self._display_playback_state(state)
-        
-        # Playback loop
-        while True:
-            # Check if song finished
-            state = self._current_player.get_state()
-            if not self._current_player.is_playing() and not state.is_paused():
-                if state.status == PlaybackStatus.FINISHED:
-                    self.show_message("\nTrack finished.")
-                    return True
-                elif state.status == PlaybackStatus.ERROR:
-                    self.show_error(f"\nError: {state.error_message}")
-                    return True
+            # Separator
+            self._stdscr.addstr(y, x, "-" * min(width, MIN_WIDTH))
+            y += 1
             
-            # Check for user input
-            key = read_key()
-            
-            if key is None:
-                # No key pressed, small delay to prevent CPU overload
-                time.sleep(0.05)
-                continue
+            # Draw items
+            if not self._items:
+                self._stdscr.addstr(y, x, "(No audio files or directories found)"[:width-1])
+            else:
+                max_items = max(1, height - 4)
                 
-            if key == 'p':
-                self._current_player.toggle_pause()
-                state = self._current_player.get_state()
-                self._display_playback_state(state)
-            elif key in ('s', 'left'):
-                self._current_player.stop()
-                self.show_message("\nStopped")
-                return True
-            elif key == 'q':
-                self._current_player.stop()
-                return False
-            elif key == '+':
-                new_volume = self._current_player.increase_volume(VOLUME_STEP)
-                state = self._current_player.get_state()
-                state.volume = new_volume
-                self._display_playback_state(state)
-            elif key == '-':
-                new_volume = self._current_player.decrease_volume(VOLUME_STEP)
-                state = self._current_player.get_state()
-                state.volume = new_volume
-                self._display_playback_state(state)
+                # Adjust scroll position
+                if self._scroll_position + max_items > len(self._items):
+                    self._scroll_position = max(0, len(self._items) - max_items)
+                if self._selected_index < self._scroll_position:
+                    self._scroll_position = self._selected_index
+                if self._selected_index >= self._scroll_position + max_items:
+                    self._scroll_position = self._selected_index - max_items + 1
+                
+                # Display visible items
+                for i in range(self._scroll_position, 
+                               min(self._scroll_position + max_items, len(self._items))):
+                    prefix = "> " if i == self._selected_index else "  "
+                    suffix = "/" if self._items[i]['type'] == 'dir' else ""
+                    line = f"{prefix}{self._items[i]['name']}{suffix}"
+                    try:
+                        self._stdscr.addstr(y + (i - self._scroll_position), x, line[:width-1])
+                    except curses.error:
+                        pass
+                
+                # Scroll indicator
+                scroll_indicator = f"[{self._scroll_position + 1}-{min(self._scroll_position + max_items, len(self._items))}/{len(self._items)}]"
+                try:
+                    self._stdscr.addstr(height - 1, x, scroll_indicator[:width-1])
+                except curses.error:
+                    pass
+        except curses.error:
+            pass
+        
+        # Controls hint at the top
+        try:
+            controls = "[Up/Down: Nav | Enter: Select | Left: Up | q: Quit]"
+            self._stdscr.addstr(0, x, controls[:width-1])
+        except curses.error:
+            pass
     
-    def _main_loop(self, start_file: Optional[Path] = None) -> None:
-        """Main loop for continuous file selection and playback."""
-        start_dir = self._start_dir if self._start_dir else os.getcwd()
+    def _draw_player_panel(self, y: int, x: int, height: int, width: int) -> None:
+        """Draw the player information and controls in the right panel."""
+        if width <= 0 or self._current_player is None:
+            return
         
-        # If a start file is provided, play it first
-        if start_file is not None:
-            if not self._play_file(start_file):
-                return  # User wants to quit
+        state = self._current_player.get_state()
         
-        # Main loop
-        while True:
-            filepath = self.select_file(start_dir)
-            if filepath is None:
-                self.show_message("\nNo file selected. Exiting.")
-                break
+        try:
+            # Header
+            header = " PLAYER "
+            self._stdscr.addstr(y, x, header[:width-1], curses.A_BOLD)
+            y += 1
             
-            start_dir = os.path.dirname(filepath)
-            if not self._play_file(Path(filepath)):
-                break
+            # Separator
+            self._stdscr.addstr(y, x, "-" * min(width, MIN_WIDTH))
+            y += 1
+            
+            # Now Playing
+            if state.current_file:
+                filename = os.path.basename(str(state.current_file))
+                now_playing = f"Now Playing: {filename}"
+                self._stdscr.addstr(y, x, now_playing[:width-1])
+                y += 1
+            else:
+                self._stdscr.addstr(y, x, "No file selected"[:width-1])
+                y += 1
+            
+            y += 1
+            
+            # Volume
+            volume_pct = int(state.volume * 100)
+            volume_str = f"Volume: {volume_pct}%"
+            self._stdscr.addstr(y, x, volume_str[:width-1])
+            y += 1
+            
+            # Status
+            if state.is_playing():
+                status = "Status: PLAYING"
+            elif state.is_paused():
+                status = "Status: PAUSED"
+            elif state.is_stopped():
+                status = "Status: STOPPED"
+            elif state.has_error():
+                status = f"Status: ERROR - {state.error_message[:20]}"
+            else:
+                status = "Status: UNKNOWN"
+            
+            # Use different attributes for status
+            attr = curses.A_BOLD if state.is_playing() else 0
+            self._stdscr.addstr(y, x, status[:width-1], attr)
+            y += 1
+            
+            y += 1
+            
+            # Controls
+            self._stdscr.addstr(y, x, "Controls:"[:width-1], curses.A_UNDERLINE)
+            y += 1
+            self._stdscr.addstr(y, x, "  p: Pause/Resume"[:width-1])
+            y += 1
+            self._stdscr.addstr(y, x, "  s: Stop"[:width-1])
+            y += 1
+            self._stdscr.addstr(y, x, "  +: Volume Up"[:width-1])
+            y += 1
+            self._stdscr.addstr(y, x, "  -: Volume Down"[:width-1])
+            y += 1
+            self._stdscr.addstr(y, x, "  q: Quit"[:width-1])
+        except curses.error:
+            pass
     
+    def _main_loop(self) -> None:
+        """Main loop for the split-screen UI."""
+        while True:
+            self._display_split_screen()
+            
+            # Get key with timeout
+            key = self._stdscr.getch()
+            
+            if key == -1:
+                # Timeout, update display and continue
+                time.sleep(0.02)
+                continue
+            
+            # Map curses key to string
+            processed_key = self._map_key(key)
+            
+            if processed_key is None:
+                continue
+            
+            # Handle navigation keys (work in both file browser and player)
+            if processed_key == 'q':
+                break
+            elif processed_key == 'up':
+                self._move_selection(-1)
+            elif processed_key == 'down':
+                self._move_selection(1)
+            elif processed_key == 'pageup':
+                self._move_selection(-SCROLL_STEP)
+            elif processed_key == 'pagedown':
+                self._move_selection(SCROLL_STEP)
+            elif processed_key in ('left', 'esc'):
+                self._go_up_directory()
+            elif processed_key in ('enter', 'right'):
+                self._select_item()
+            elif processed_key.isdigit():
+                self._select_by_number(int(processed_key))
+            # Player control keys
+            elif processed_key == 'p':
+                self._current_player.toggle_pause()
+            elif processed_key == 's':
+                self._current_player.stop()
+            elif processed_key == '+':
+                self._current_player.increase_volume(VOLUME_STEP)
+            elif processed_key == '-':
+                self._current_player.decrease_volume(VOLUME_STEP)
+    
+    def _move_selection(self, delta: int) -> None:
+        """Move the selection in the file tree by delta."""
+        if not self._items:
+            return
+        
+        self._selected_index = max(0, min(len(self._items) - 1, self._selected_index + delta))
+        
+        # Adjust scroll position if needed
+        if self._selected_index < self._scroll_position:
+            self._scroll_position = self._selected_index
+        elif self._selected_index >= self._scroll_position + 20:
+            self._scroll_position = self._selected_index - 19
+    
+    def _go_up_directory(self) -> None:
+        """Go up one directory level."""
+        parent_dir = os.path.dirname(self._current_dir)
+        if parent_dir != self._current_dir:
+            self._current_dir = parent_dir
+            self._load_items()
+    
+    def _select_item(self) -> None:
+        """Select the currently highlighted item."""
+        if not self._items or self._selected_index >= len(self._items):
+            return
+        
+        item = self._items[self._selected_index]
+        if item['type'] == 'dir':
+            self._current_dir = item['path']
+            self._load_items()
+        else:
+            # Play the selected audio file
+            self._current_player.stop()
+            self._current_player.play(Path(item['path']))
+    
+    def _select_by_number(self, number: int) -> None:
+        """Select an item by its number (1-9)."""
+        if not self._items:
+            return
+        
+        index = number - 1
+        if 0 <= index < len(self._items):
+            item = self._items[index]
+            if item['type'] == 'dir':
+                self._current_dir = item['path']
+                self._load_items()
+            else:
+                self._current_player.stop()
+                self._current_player.play(Path(item['path']))
+    
+    def _map_key(self, key: int) -> Optional[str]:
+        """Map curses key code to string name."""
+        if key == -1:
+            return None
+        
+        key_map = {
+            27: 'esc',
+            10: 'enter',
+            13: 'enter',
+            9: 'tab',
+            32: ' ',
+            curses.KEY_UP: 'up',
+            curses.KEY_DOWN: 'down',
+            curses.KEY_LEFT: 'left',
+            curses.KEY_RIGHT: 'right',
+            curses.KEY_PPAGE: 'pageup',
+            curses.KEY_NPAGE: 'pagedown',
+        }
+        
+        result = key_map.get(key)
+        if result is not None:
+            return result
+        
+        if 32 <= key <= 126:
+            return chr(key).lower()
+        
+        return None
+    
+    # Methods for UIInterface compliance
     def select_file(self, start_dir: Optional[str] = None) -> Optional[str]:
         """
-        Show a file selection dialog using curses.
+        Show a file selection dialog.
+        
+        In this split-screen UI, this is not used as the file selector
+        is always visible on the left. This method is kept for interface
+        compatibility.
         
         Args:
             start_dir: Starting directory for file selection.
@@ -156,145 +403,14 @@ class TerminalUI(UIInterface):
         Returns:
             Path to the selected audio file, or None if cancelled.
         """
-        import curses
-        
-        # Validate and set starting directory
         if start_dir is None:
             start_dir = os.getcwd()
         
-        # Ensure we have a valid directory
-        current_dir = start_dir
-        while not os.path.isdir(current_dir):
-            parent = os.path.dirname(current_dir)
-            if parent == current_dir:
-                current_dir = os.getcwd()
-                break
-            current_dir = parent
-        
-        selected_index = 0
-        scroll_position = 0
-        
-        # Initialize curses
-        stdscr = curses.initscr()
-        curses.cbreak()
-        curses.noecho()
-        stdscr.keypad(True)
-        stdscr.timeout(100)
-        curses.curs_set(0)
-        
-        try:
-            while True:
-                items = get_directory_contents(current_dir)
-                
-                # Clear and redraw screen
-                stdscr.clear()
-                height, width = stdscr.getmaxyx()
-                
-                try:
-                    # Draw header
-                    stdscr.addstr(0, 0, SELECTOR_CONTROLS[:width - 1])
-                    separator = "-" * min(width, MIN_WIDTH)
-                    stdscr.addstr(1, 0, separator)
-                    stdscr.addstr(2, 0, f"Directory: {current_dir}"[:width - 1])
-                    stdscr.addstr(3, 0, separator)
-                    
-                    # Draw items
-                    if not items:
-                        stdscr.addstr(5, 0, "(No audio files or directories found)")
-                    else:
-                        max_items = max(1, height - 6)
-                        
-                        # Adjust scroll position
-                        if scroll_position + max_items > len(items):
-                            scroll_position = max(0, len(items) - max_items)
-                        if selected_index < scroll_position:
-                            scroll_position = selected_index
-                        if selected_index >= scroll_position + max_items:
-                            scroll_position = selected_index - max_items + 1
-                        
-                        # Display visible items
-                        for i in range(scroll_position, min(scroll_position + max_items, len(items))):
-                            prefix = "> " if i == selected_index else "  "
-                            suffix = "/" if items[i]['type'] == 'dir' else ""
-                            line = f"{prefix}{items[i]['name']}{suffix}"
-                            try:
-                                stdscr.addstr(5 + (i - scroll_position), 0, line[:width - 1])
-                            except curses.error:
-                                truncated = f"{prefix}[unreadable]{suffix}"[:width - 1]
-                                stdscr.addstr(5 + (i - scroll_position), 0, truncated)
-                        
-                        # Draw scroll indicator
-                        scroll_indicator = f"[{scroll_position + 1}-{min(scroll_position + max_items, len(items))}/{len(items)}]"
-                        stdscr.addstr(height - 1, 0, scroll_indicator[:width - 1])
-                except curses.error:
-                    pass
-                
-                stdscr.refresh()
-                
-                # Get and process key
-                key = stdscr.getch()
-                if key == -1:
-                    time.sleep(0.05)
-                    continue
-                
-                # Map curses key codes to string names
-                key_map = {
-                    27: 'esc',
-                    10: 'enter',
-                    13: 'enter',
-                    9: 'tab',
-                    32: ' ',
-                    curses.KEY_UP: 'up',
-                    curses.KEY_DOWN: 'down',
-                    curses.KEY_LEFT: 'left',
-                    curses.KEY_RIGHT: 'right',
-                    curses.KEY_PPAGE: 'pageup',
-                    curses.KEY_NPAGE: 'pagedown',
-                }
-                
-                processed_key = key_map.get(key)
-                if processed_key is None and 32 <= key <= 126:
-                    processed_key = chr(key).lower()
-                
-                # Handle key presses
-                if processed_key == 'q':
-                    return None
-                elif processed_key == 'up' and items:
-                    selected_index = max(0, selected_index - 1)
-                elif processed_key == 'down' and items:
-                    selected_index = min(len(items) - 1, selected_index + 1)
-                elif processed_key == 'pageup' and items:
-                    selected_index = max(0, selected_index - SCROLL_STEP)
-                elif processed_key == 'pagedown' and items:
-                    selected_index = min(len(items) - 1, selected_index + SCROLL_STEP)
-                elif processed_key in ('left', 'esc'):
-                    parent_dir = os.path.dirname(current_dir)
-                    if parent_dir != current_dir:
-                        current_dir = parent_dir
-                    selected_index = 0
-                    scroll_position = 0
-                elif processed_key in ('enter', 'right') and items and selected_index < len(items):
-                    if items[selected_index]['type'] == 'dir':
-                        current_dir = items[selected_index]['path']
-                        selected_index = 0
-                        scroll_position = 0
-                    else:
-                        return items[selected_index]['path']
-                elif isinstance(processed_key, str) and processed_key.isdigit() and items:
-                    index = int(processed_key)
-                    if 1 <= index <= len(items):
-                        selected_item = items[index - 1]
-                        if selected_item['type'] == 'dir':
-                            current_dir = selected_item['path']
-                            selected_index = 0
-                            scroll_position = 0
-                        else:
-                            return selected_item['path']
-        finally:
-            curses.nocbreak()
-            curses.echo()
-            stdscr.keypad(False)
-            curses.endwin()
+        items = get_directory_contents(start_dir)
+        audio_files = [i['path'] for i in items if i['type'] == 'file']
+        if audio_files:
+            return audio_files[0]
+        return None
     
     def display_state(self, state: PlayerState) -> None:
         """
@@ -303,43 +419,7 @@ class TerminalUI(UIInterface):
         Args:
             state: The current player state to display.
         """
-        self._display_playback_state(state)
-    
-    def _display_playback_state(self, state: PlayerState) -> None:
-        """Display the playback state with controls."""
-        clear_screen()
-        
-        filename = str(state.current_file) if state.current_file else "Unknown"
-        print(f"Now Playing: {os.path.basename(filename)}")
-        print(f"Volume: {int(state.volume * 100)}%")
-        
-        if state.is_playing():
-            status = "Playing"
-        elif state.is_paused():
-            status = "Paused"
-        elif state.is_stopped():
-            status = "Stopped"
-        elif state.has_error():
-            status = f"Error: {state.error_message}"
-        else:
-            status = "Unknown"
-        
-        print(f"Status: {status}")
-        self._print_controls()
-    
-    def _print_controls(self) -> None:
-        """Display the control instructions."""
-        print("\n" + "=" * MIN_WIDTH)
-        print("  Sebs_Musicbowl - Terminal Music Player")
-        print("=" * MIN_WIDTH)
-        print("\nControls:")
-        print("  p  - Pause / Resume")
-        print("  s  - Stop (return to selection)")
-        print("  Left - Stop (return to selection)")
-        print("  q  - Quit")
-        print("  +  - Increase volume")
-        print("  -  - Decrease volume")
-        print("=" * MIN_WIDTH + "\n")
+        pass
     
     def show_error(self, message: str) -> None:
         """
@@ -348,9 +428,16 @@ class TerminalUI(UIInterface):
         Args:
             message: The error message to display.
         """
-        clear_screen()
-        print(f"ERROR: {message}")
-        print()
+        if self._stdscr:
+            try:
+                height, width = self._stdscr.getmaxyx()
+                split_pos = self._get_split_position()
+                error_msg = f"ERROR: {message}"
+                self._stdscr.addstr(height - 1, split_pos + 1, error_msg[:width - split_pos - 2])
+                self._stdscr.refresh()
+                time.sleep(2)
+            except Exception:
+                pass
     
     def show_message(self, message: str) -> None:
         """
@@ -359,9 +446,15 @@ class TerminalUI(UIInterface):
         Args:
             message: The message to display.
         """
-        print(message)
+        if self._stdscr:
+            try:
+                height, width = self._stdscr.getmaxyx()
+                split_pos = self._get_split_position()
+                self._stdscr.addstr(height - 1, split_pos + 1, message[:width - split_pos - 2])
+                self._stdscr.refresh()
+            except Exception:
+                pass
     
     def cleanup(self) -> None:
         """Clean up any resources used by the UI."""
-        # Terminal UI doesn't have persistent resources to clean up
-        pass
+        self._cleanup_curses()
