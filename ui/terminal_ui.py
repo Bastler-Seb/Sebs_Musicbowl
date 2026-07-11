@@ -127,8 +127,8 @@ class TerminalUI(UIInterface):
         # Draw left panel - File Tree
         self._draw_file_tree(0, 0, height, split_pos)
         
-        # Draw right panel - Player
-        self._draw_player_panel(split_pos, 0, height, width - split_pos)
+        # Draw right panel - Player Menu
+        self._draw_player_menu(split_pos, 0, height, width - split_pos)
         
         # Draw separator line
         if split_pos < width:
@@ -147,7 +147,7 @@ class TerminalUI(UIInterface):
         
         try:
             # Header
-            header = f" Directory: {self._current_dir[:width-14]} "
+            header = f" BROWSE: {self._current_dir[:width-12]} "
             self._stdscr.addstr(y, x, header[:width])
             y += 1
             
@@ -196,8 +196,8 @@ class TerminalUI(UIInterface):
         except curses.error:
             pass
     
-    def _draw_player_panel(self, y: int, x: int, height: int, width: int) -> None:
-        """Draw the player information and controls in the right panel."""
+    def _draw_player_menu(self, x: int, y: int, height: int, width: int) -> None:
+        """Draw the player menu in the right panel."""
         if width <= 0 or self._current_player is None:
             return
         
@@ -205,63 +205,65 @@ class TerminalUI(UIInterface):
         
         try:
             # Header
-            header = " PLAYER "
-            self._stdscr.addstr(y, x, header[:width-1], curses.A_BOLD)
+            self._stdscr.addstr(y, x, " " + "=" * (min(width-2, MIN_WIDTH)))
             y += 1
-            
-            # Separator
-            self._stdscr.addstr(y, x, "-" * min(width, MIN_WIDTH))
+            title = "  Sebs_Musicbowl - Player  "
+            self._stdscr.addstr(y, x, title[:width-1], curses.A_BOLD)
+            y += 1
+            self._stdscr.addstr(y, x, " " + "=" * (min(width-2, MIN_WIDTH)))
+            y += 1
             y += 1
             
             # Now Playing
             if state.current_file:
                 filename = os.path.basename(str(state.current_file))
                 now_playing = f"Now Playing: {filename}"
-                self._stdscr.addstr(y, x, now_playing[:width-1])
+                self._stdscr.addstr(y, x, now_playing[:width-2])
                 y += 1
             else:
-                self._stdscr.addstr(y, x, "No file selected"[:width-1])
+                self._stdscr.addstr(y, x, "No file selected"[:width-2])
                 y += 1
-            
-            y += 1
             
             # Volume
             volume_pct = int(state.volume * 100)
             volume_str = f"Volume: {volume_pct}%"
-            self._stdscr.addstr(y, x, volume_str[:width-1])
+            self._stdscr.addstr(y, x, volume_str[:width-2])
             y += 1
             
             # Status
             if state.is_playing():
-                status = "Status: PLAYING"
+                status = "Status: Playing"
             elif state.is_paused():
-                status = "Status: PAUSED"
+                status = "Status: Paused"
             elif state.is_stopped():
-                status = "Status: STOPPED"
+                status = "Status: Stopped"
             elif state.has_error():
-                status = f"Status: ERROR - {state.error_message[:20]}"
+                status = f"Status: Error"
             else:
-                status = "Status: UNKNOWN"
+                status = "Status: Unknown"
             
-            # Use different attributes for status
             attr = curses.A_BOLD if state.is_playing() else 0
-            self._stdscr.addstr(y, x, status[:width-1], attr)
+            self._stdscr.addstr(y, x, status[:width-2], attr)
+            y += 1
             y += 1
             
+            # Player Controls Menu
+            self._stdscr.addstr(y, x, "Controls:"[:width-2], curses.A_UNDERLINE)
+            y += 1
+            self._stdscr.addstr(y, x, "  p  - Pause / Resume"[:width-2])
+            y += 1
+            self._stdscr.addstr(y, x, "  s  - Stop"[:width-2])
+            y += 1
+            self._stdscr.addstr(y, x, "  +  - Increase volume"[:width-2])
+            y += 1
+            self._stdscr.addstr(y, x, "  -  - Decrease volume"[:width-2])
+            y += 1
+            self._stdscr.addstr(y, x, "  q  - Quit"[:width-2])
+            y += 1
             y += 1
             
-            # Controls
-            self._stdscr.addstr(y, x, "Controls:"[:width-1], curses.A_UNDERLINE)
-            y += 1
-            self._stdscr.addstr(y, x, "  p: Pause/Resume"[:width-1])
-            y += 1
-            self._stdscr.addstr(y, x, "  s: Stop"[:width-1])
-            y += 1
-            self._stdscr.addstr(y, x, "  +: Volume Up"[:width-1])
-            y += 1
-            self._stdscr.addstr(y, x, "  -: Volume Down"[:width-1])
-            y += 1
-            self._stdscr.addstr(y, x, "  q: Quit"[:width-1])
+            # Separator at bottom
+            self._stdscr.addstr(y, x, " " + "=" * (min(width-2, MIN_WIDTH)))
         except curses.error:
             pass
     
