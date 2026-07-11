@@ -10,7 +10,7 @@ Usage:
     
     If no filepath is provided, you will be prompted to enter one.
 
-Controls while playing (press Enter after each command):
+Controls while playing:
     p   - Pause / Resume
     s   - Stop
     q   - Quit
@@ -23,7 +23,14 @@ import sys
 import os
 import argparse
 import pygame
-import select
+import threading
+
+# Try to import readchar for single-key input
+try:
+    import readchar
+    USE_READCHAR = True
+except ImportError:
+    USE_READCHAR = False
 
 
 def clear_screen():
@@ -36,7 +43,7 @@ def print_controls():
     print("\n" + "=" * 50)
     print("  Sebs_Musicbowl - Terminal Music Player")
     print("=" * 50)
-    print("\nControls (press Enter after each command):")
+    print("\nControls:")
     print("  p  - Pause / Resume")
     print("  s  - Stop")
     print("  q  - Quit")
@@ -56,25 +63,55 @@ def get_file_path():
         print("Please enter a valid file path.")
 
 
-def get_command():
-    """Read a command from stdin with timeout. Returns command or None."""
-    import select
-    rlist, _, _ = select.select([sys.stdin], [], [], 0.1)
-    if rlist:
-        try:
-            # Read a line (user must press Enter)
-            line = sys.stdin.readline().strip()
-            if line:
-                return line
-        except:
-            pass
-    return None
+class KeyListener:
+    """Background thread to listen for single key presses."""
+    def __init__(self):
+        self.key_pressed = None
+        self.running = True
+        self.thread = threading.Thread(target=self._listen, daemon=True)
+        self.thread.start()
+    
+    def _listen(self):
+        """Listen for key presses in a loop."""
+        while self.running:
+            try:
+                if USE_READCHAR:
+                    self.key_pressed = readchar.readchar()
+                else:
+                    # Fallback: use msvcrt on Windows or standard input
+                    try:
+                        import msvcrt
+                        if msvcrt.kbhit():
+                            self.key_pressed = msvcrt.getch().decode('utf-8', errors='ignore')
+                        else:
+                            import time
+                            time.sleep(0.1)
+                            continue
+                    except:
+                        import time
+                        time.sleep(0.1)
+            except:
+                pass
+    
+    def get_key(self):
+        """Get the last pressed key and clear it."""
+        key = self.key_pressed
+        self.key_pressed = None
+        return key
+    
+    def stop(self):
+        """Stop the listener thread."""
+        self.running = False
+        self.thread.join(timeout=0.1)
 
 
 def play_music(filepath):
     """Play the music file with interactive controls."""
     # Initialize pygame mixer
     pygame.mixer.init()
+    
+    # Start key listener
+    key_listener = KeyListener()
     
     try:
         # Load the music file
@@ -105,10 +142,10 @@ def play_music(filepath):
                 break
             
             # Check for user input
-            cmd = get_command()
+            key = key_listener.get_key()
             
-            if cmd:
-                if cmd == 'p':
+            if key:
+                if key == 'p':
                     if paused:
                         pygame.mixer.music.unpause()
                         paused = False
@@ -120,14 +157,14 @@ def play_music(filepath):
                     print(f"Volume: {int(volume * 100)}%")
                     print(f"Status: {'Paused' if paused else 'Playing'}")
                     print_controls()
-                elif cmd == 's':
+                elif key == 's':
                     pygame.mixer.music.stop()
                     print("\nStopped")
                     running = False
-                elif cmd == 'q':
+                elif key == 'q':
                     pygame.mixer.music.stop()
                     running = False
-                elif cmd == '+':
+                elif key == '+':
                     volume = min(1.0, volume + 0.1)
                     pygame.mixer.music.set_volume(volume)
                     clear_screen()
@@ -135,7 +172,7 @@ def play_music(filepath):
                     print(f"Volume: {int(volume * 100)}%")
                     print(f"Status: {'Paused' if paused else 'Playing'}")
                     print_controls()
-                elif cmd == '-':
+                elif key == '-':
                     volume = max(0.0, volume - 0.1)
                     pygame.mixer.music.set_volume(volume)
                     clear_screen()
@@ -143,19 +180,24 @@ def play_music(filepath):
                     print(f"Volume: {int(volume * 100)}%")
                     print(f"Status: {'Paused' if paused else 'Playing'}")
                     print_controls()
-                elif cmd.lower() == 'h':
+                elif key.lower() == 'h':
                     clear_screen()
                     print(f"Now Playing: {os.path.basename(filepath)}")
                     print(f"Volume: {int(volume * 100)}%")
                     print(f"Status: {'Paused' if paused else 'Playing'}")
                     print_controls()
             
+            # Small delay to prevent CPU overload
+            import time
+            time.sleep(0.05)
+    
     except pygame.error as e:
         print(f"\nError loading file: {e}")
         print("Please ensure the file is a supported audio format (MP3, WAV, OGG).")
     except KeyboardInterrupt:
         print("\nStopped by user.")
     finally:
+        key_listener.stop()
         pygame.mixer.quit()
 
 
