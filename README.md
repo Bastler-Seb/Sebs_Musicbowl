@@ -93,12 +93,3 @@ Sebs_Musicbowl/
     └── settings.py           # Configuration management
 ```
 
-### Extending the Player
-To replace the terminal UI with a GUI:
-1. Implement the `UIInterface` in a new class (e.g., `PyQtUI`, `TkinterUI`)
-2. Replace `TerminalUI` with your new class in `main.py`'s `create_ui()` function
-3. The player logic remains unchanged
-
-Similarly, to use a different audio backend:
-1. Implement the `PlayerInterface` in a new class
-2. Replace `PygamePlayer` with your new class in `main.py`'s `create_player()` function
