@@ -194,6 +194,30 @@ class TerminalUI(UIInterface):
         except curses.error:
             pass
     
+    def _format_time(self, seconds: float) -> str:
+        """Format seconds into MM:SS string."""
+        if seconds < 0:
+            seconds = 0
+        minutes = int(seconds // 60)
+        secs = int(seconds % 60)
+        return f"{minutes:02d}:{secs:02d}"
+    
+    def _draw_progress_bar(self, y: int, x: int, width: int, progress: float) -> None:
+        """Draw a progress bar at the specified position."""
+        if width < 10:
+            return
+        
+        try:
+            # Calculate bar width and position
+            bar_width = width - 2  # Leave space for brackets
+            filled_width = int(bar_width * progress)
+            
+            # Draw the progress bar
+            bar = "[" + "#" * filled_width + "-" * (bar_width - filled_width) + "]"
+            self._stdscr.addstr(y, x, bar[:width])
+        except curses.error:
+            pass
+    
     def _draw_player_menu(self, y: int, x: int, height: int, width: int) -> None:
         """Draw the player menu in the right panel with padding."""
         if width <= 2 or self._current_player is None:
@@ -218,6 +242,11 @@ class TerminalUI(UIInterface):
             y += 1
             y += 1
             
+            # Controls (single line)
+            controls_str = "Controls: p: Pause | s: Stop | +: Inc Vol | -: Dec Vol | q: Quit"
+            self._stdscr.addstr(y, pad_x, controls_str[:inner_width], curses.A_UNDERLINE)
+            y += 2
+            
             # Now Playing
             if state.current_file:
                 filename = os.path.basename(str(state.current_file))
@@ -226,6 +255,22 @@ class TerminalUI(UIInterface):
                 y += 1
             else:
                 self._stdscr.addstr(y, pad_x, "No file selected"[:inner_width])
+                y += 1
+            
+            # Progress Bar and Time
+            if state.current_file and state.duration > 0:
+                progress = state.position / state.duration if state.duration > 0 else 0.0
+                progress = max(0.0, min(1.0, progress))
+                
+                # Draw progress bar
+                self._draw_progress_bar(y, pad_x, inner_width, progress)
+                y += 1
+                
+                # Draw time info: played_time / total_time
+                played_time = self._format_time(state.position)
+                total_time = self._format_time(state.duration)
+                time_str = f"Time: {played_time} / {total_time}"
+                self._stdscr.addstr(y, pad_x, time_str[:inner_width])
                 y += 1
             
             # Volume
@@ -248,21 +293,6 @@ class TerminalUI(UIInterface):
             
             attr = curses.A_BOLD if state.is_playing() else 0
             self._stdscr.addstr(y, pad_x, status[:inner_width], attr)
-            y += 1
-            y += 1
-            
-            # Controls
-            self._stdscr.addstr(y, pad_x, "Controls:", curses.A_UNDERLINE)
-            y += 1
-            self._stdscr.addstr(y, pad_x, "  p  - Pause / Resume"[:inner_width])
-            y += 1
-            self._stdscr.addstr(y, pad_x, "  s  - Stop"[:inner_width])
-            y += 1
-            self._stdscr.addstr(y, pad_x, "  +  - Increase volume"[:inner_width])
-            y += 1
-            self._stdscr.addstr(y, pad_x, "  -  - Decrease volume"[:inner_width])
-            y += 1
-            self._stdscr.addstr(y, pad_x, "  q  - Quit"[:inner_width])
             y += 1
             y += 1
             
