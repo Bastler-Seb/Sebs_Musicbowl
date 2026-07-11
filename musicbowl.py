@@ -18,11 +18,11 @@ Controls while playing:
     -   - Decrease volume
     h   - Show help
 
-Controls in file selector:
-    ↑/↓ arrows - Navigate files
-    Enter - Select file
-    ESC - Go up one directory
-    q - Quit
+File Selector Controls:
+    ↑/↓ arrows   - Navigate items
+    →/Enter      - Enter directory or select file
+    ←/ESC        - Go up one directory
+    q            - Quit selector
 """
 
 import sys
@@ -47,71 +47,64 @@ def clear_screen():
     os.system('cls' if os.name == 'nt' else 'clear')
 
 
-def get_audio_files(directory):
-    """Recursively find all audio files in a directory."""
-    audio_files = []
-    for root, dirs, files in os.walk(directory):
-        # Skip hidden directories
-        dirs[:] = [d for d in dirs if not d.startswith('.')]
-        for file in files:
-            if any(file.lower().endswith(ext) for ext in AUDIO_EXTENSIONS):
-                full_path = os.path.join(root, file)
-                audio_files.append(full_path)
-    return sorted(audio_files)
+def is_audio_file(filepath):
+    """Check if a file is an audio file based on extension."""
+    return any(filepath.lower().endswith(ext) for ext in AUDIO_EXTENSIONS)
+
+
+def get_directory_contents(directory):
+    """Get list of directories and audio files in a directory."""
+    items = []
+    try:
+        for item in os.listdir(directory):
+            full_path = os.path.join(directory, item)
+            if os.path.isdir(full_path) and not item.startswith('.'):
+                items.append({'name': item, 'path': full_path, 'type': 'dir'})
+            elif os.path.isfile(full_path) and is_audio_file(item):
+                items.append({'name': item, 'path': full_path, 'type': 'file'})
+    except PermissionError:
+        pass
+    # Sort: directories first, then files, both alphabetically
+    dirs = [i for i in items if i['type'] == 'dir']
+    files = [i for i in items if i['type'] == 'file']
+    dirs.sort(key=lambda x: x['name'].lower())
+    files.sort(key=lambda x: x['name'].lower())
+    return dirs + files
 
 
 def select_file_ui(start_dir=None):
-    """Terminal UI for selecting an audio file."""
+    """Terminal UI for selecting an audio file with directory tree navigation."""
     if start_dir is None:
         start_dir = os.getcwd()
     
     if not os.path.isdir(start_dir):
         start_dir = os.path.dirname(start_dir)
     
-    clear_screen()
-    print("=" * 50)
-    print("  Sebs_Musicbowl - File Selector")
-    print("=" * 50)
-    print("\nNavigating: Press arrows to move, Enter to select, ESC to go up, q to quit")
-    print("-" * 50)
-    
     current_dir = start_dir
     selected_index = 0
     
     while True:
-        # Get audio files in current directory
-        audio_files = get_audio_files(current_dir)
+        # Get items in current directory
+        items = get_directory_contents(current_dir)
         
-        if not audio_files:
-            print(f"\nNo audio files found in: {current_dir}")
-            print("Press any key to go up...")
-            if USE_READCHAR:
-                readchar.readchar()
-            else:
-                try:
-                    import msvcrt
-                    msvcrt.getch()
-                except:
-                    input()
-            current_dir = os.path.dirname(current_dir)
-            if current_dir == os.path.dirname(current_dir):
-                current_dir = "/"
-            continue
-        
-        # Display files
+        # Display directory tree
         clear_screen()
         print("=" * 50)
-        print(f"  Current: {current_dir}")
+        print("  Sebs_Musicbowl - File Selector")
         print("=" * 50)
-        print("\nFiles:")
+        print(f"\nCurrent: {current_dir}")
+        print("-" * 50)
         
-        for i, filepath in enumerate(audio_files):
-            filename = os.path.basename(filepath)
-            prefix = "  > " if i == selected_index else "     "
-            print(f"{prefix}{filename}")
+        if not items:
+            print("  (No audio files or directories found)")
+        else:
+            for i, item in enumerate(items):
+                prefix = "  > " if i == selected_index else "     "
+                suffix = "/" if item['type'] == 'dir' else ""
+                print(f"{prefix}{item['name']}{suffix}")
         
-        print("\n" + "-" * 50)
-        print("Controls: ↑/↓ arrows - navigate, Enter - select, ESC - up, q - quit")
+        print("-" * 50)
+        print("Controls: ↑/↓ - navigate, →/Enter - enter/select, ←/ESC - go up, q - quit")
         
         # Get key press
         try:
@@ -122,57 +115,96 @@ def select_file_ui(start_dir=None):
                     import msvcrt
                     key = msvcrt.getch().decode('utf-8', errors='ignore')
                 except:
-                    key = input("Enter choice: ").strip()
-                    if key.isdigit() and int(key) < len(audio_files):
-                        return audio_files[int(key)]
-                    continue
+                    key = None
         except KeyboardInterrupt:
             return None
+        
+        if key is None:
+            import time
+            time.sleep(0.1)
+            continue
         
         # Handle keys
         if key == 'q':
             return None
-        elif key == '\x1b':  # ESC - go up one directory
-            current_dir = os.path.dirname(current_dir)
-            if current_dir == os.path.dirname(current_dir):
-                current_dir = "/"
-            selected_index = 0
-        elif key in ('\r', '\n'):  # Enter - select file
-            return audio_files[selected_index]
+        elif key == '\x1b':  # ESC or arrow key prefix
+            if USE_READCHAR:
+                # ESC pressed - go up
+                current_dir = os.path.dirname(current_dir)
+                selected_index = 0
+            else:
+                # Check if this is the start of an arrow key sequence
+                try:
+                    import msvcrt
+                    import time
+                    time.sleep(0.05)
+                    if msvcrt.kbhit():
+                        next_key = msvcrt.getch()
+                        if next_key == b'[':  # Arrow key
+                            next_next = msvcrt.getch()
+                            if next_next == b'A':  # Up
+                                selected_index = max(0, selected_index - 1)
+                            elif next_next == b'B':  # Down
+                                selected_index = min(len(items) - 1, selected_index + 1)
+                            elif next_next == b'C':  # Right
+                                if items and items[selected_index]['type'] == 'dir':
+                                    current_dir = items[selected_index]['path']
+                                    selected_index = 0
+                            elif next_next == b'D':  # Left
+                                current_dir = os.path.dirname(current_dir)
+                                selected_index = 0
+                    else:
+                        # Just ESC
+                        current_dir = os.path.dirname(current_dir)
+                        selected_index = 0
+                except:
+                    current_dir = os.path.dirname(current_dir)
+                    selected_index = 0
+        elif key in ('\r', '\n'):  # Enter
+            if items and selected_index < len(items):
+                if items[selected_index]['type'] == 'dir':
+                    current_dir = items[selected_index]['path']
+                    selected_index = 0
+                else:
+                    return items[selected_index]['path']
         elif key == '\x03':  # Ctrl+C
             return None
-        elif key == '\x08' or key == '\x7f':  # Backspace/Delete - go up
+        elif key == '\x08' or key == '\x7f':  # Backspace/Delete
             current_dir = os.path.dirname(current_dir)
-            if current_dir == os.path.dirname(current_dir):
-                current_dir = "/"
             selected_index = 0
-        elif hasattr(readchar, 'key') or USE_READCHAR:
+        elif USE_READCHAR:
             # Handle arrow keys with readchar
             if key == readchar.key.UP:
                 selected_index = max(0, selected_index - 1)
             elif key == readchar.key.DOWN:
-                selected_index = min(len(audio_files) - 1, selected_index + 1)
-            elif key == readchar.key.ESC:
+                selected_index = min(len(items) - 1 if items else 0, selected_index + 1)
+            elif key == readchar.key.RIGHT:
+                if items and items[selected_index]['type'] == 'dir':
+                    current_dir = items[selected_index]['path']
+                    selected_index = 0
+            elif key == readchar.key.LEFT or key == readchar.key.ESC:
                 current_dir = os.path.dirname(current_dir)
-                if current_dir == os.path.dirname(current_dir):
-                    current_dir = "/"
                 selected_index = 0
             elif key == readchar.key.ENTER:
-                return audio_files[selected_index]
+                if items and selected_index < len(items):
+                    if items[selected_index]['type'] == 'dir':
+                        current_dir = items[selected_index]['path']
+                        selected_index = 0
+                    else:
+                        return items[selected_index]['path']
         else:
-            # Handle arrow keys with msvcrt or manual input
+            # Handle numeric input fallback
             try:
                 import msvcrt
-                if key == '\xe0':  # Arrow key prefix
-                    next_key = msvcrt.getch()
-                    if next_key == b'H':  # Up arrow
-                        selected_index = max(0, selected_index - 1)
-                    elif next_key == b'P':  # Down arrow
-                        selected_index = min(len(audio_files) - 1, selected_index + 1)
+                if key.isdigit() and items and int(key) <= len(items):
+                    selected_item = items[int(key) - 1] if int(key) > 0 else items[0]
+                    if selected_item['type'] == 'dir':
+                        current_dir = selected_item['path']
+                        selected_index = 0
+                    else:
+                        return selected_item['path']
             except:
-                # Try numeric input
-                if key.isdigit() and int(key) < len(audio_files):
-                    return audio_files[int(key)]
+                pass
 
 
 def print_controls():
