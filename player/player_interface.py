@@ -12,6 +12,7 @@ from typing import Optional, Callable, Any
 from enum import Enum
 
 from .player_state import PlayerState, PlaybackStatus
+from .playlist import PlaylistManager
 
 
 class PlayerCommand(Enum):
@@ -27,6 +28,9 @@ class PlayerCommand(Enum):
     SEEK = "seek"
     NEXT = "next"
     PREVIOUS = "previous"
+    PLAYLIST_NEXT = "playlist_next"
+    PLAYLIST_PREVIOUS = "playlist_previous"
+    PLAYLIST_CLEAR = "playlist_clear"
 
 
 class PlayerInterface(ABC):
@@ -206,6 +210,69 @@ class PlayerInterface(ABC):
         
         This should be called when the player is no longer needed.
         """
+        pass
+
+    @abstractmethod
+    def get_playlist_manager(self) -> "PlaylistManager":
+        """
+        Get the playlist manager instance.
+        
+        Returns:
+            The PlaylistManager instance.
+        """
+        pass
+    
+    @abstractmethod
+    def play_playlist(self, directory: str, start_file: Optional[Path] = None) -> bool:
+        """
+        Load a directory as a playlist and start playing from a specific file.
+        
+        Args:
+            directory: Path to the directory containing audio files.
+            start_file: Optional file to start playing from.
+            
+        Returns:
+            True if playlist was loaded and playback started successfully.
+        """
+        pass
+    
+    @abstractmethod
+    def append_to_playlist(self, directory: str, start_file: Optional[Path] = None) -> bool:
+        """
+        Append all audio files from a directory to the current playlist.
+        
+        Args:
+            directory: Path to the directory containing audio files.
+            start_file: Optional file to append and set as current.
+            
+        Returns:
+            True if files were appended successfully.
+        """
+        pass
+    
+    @abstractmethod
+    def next_track(self) -> bool:
+        """
+        Skip to the next track in the playlist.
+        
+        Returns:
+            True if there was a next track and it was loaded successfully.
+        """
+        pass
+    
+    @abstractmethod
+    def previous_track(self) -> bool:
+        """
+        Go to the previous track in the playlist.
+        
+        Returns:
+            True if there was a previous track and it was loaded successfully.
+        """
+        pass
+    
+    @abstractmethod
+    def clear_playlist(self) -> None:
+        """Clear the current playlist."""
         pass
     
     def on_state_change(self, callback: Callable[[PlayerState], None]) -> None:

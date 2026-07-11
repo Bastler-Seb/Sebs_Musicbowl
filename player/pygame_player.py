@@ -12,6 +12,7 @@ from typing import Optional
 
 from .player_interface import PlayerInterface
 from .player_state import PlayerState, PlaybackStatus
+from .playlist import PlaylistManager
 
 
 class PygamePlayer(PlayerInterface):
@@ -40,6 +41,7 @@ class PygamePlayer(PlayerInterface):
         self._start_time: float = 0.0
         self._pause_time: float = 0.0
         self._duration: float = 0.0
+        self._playlist_manager: PlaylistManager = PlaylistManager()
         
         # Initialize pygame mixer (only once per class)
         self._initialize_pygame()
@@ -100,6 +102,9 @@ class PygamePlayer(PlayerInterface):
             self._playing = True
             self._paused = False
             self._start_time = time.time()
+            
+            # Update playlist manager with current file
+            self._playlist_manager.go_to_track(file_path)
             
             # Update state
             self._state = PlayerState(
@@ -282,6 +287,9 @@ class PygamePlayer(PlayerInterface):
             elif not busy and self._state.status != PlaybackStatus.STOPPED:
                 self._state.status = PlaybackStatus.FINISHED
                 self._playing = False
+                # Auto-advance to next track if track finished and playlist has more tracks
+                if self._playlist_manager.has_tracks and self._playlist_manager.has_next:
+                    self.next_track()
         
         # Update position from tracking
         self._state.position = self.get_position()
@@ -358,3 +366,85 @@ class PygamePlayer(PlayerInterface):
         self._paused = False
         self._current_file = None
         self._state = PlayerState()
+        self._playlist_manager.clear()
+    
+    def get_playlist_manager(self) -> PlaylistManager:
+        """
+        Get the playlist manager instance.
+        
+        Returns:
+            The PlaylistManager instance.
+        """
+        return self._playlist_manager
+    
+    def play_playlist(self, directory: str, start_file: Optional[Path] = None) -> bool:
+        """
+        Load a directory as a playlist and start playing from a specific file.
+        
+        Args:
+            directory: Path to the directory containing audio files.
+            start_file: Optional file to start playing from.
+            
+        Returns:
+            True if playlist was loaded and playback started successfully.
+        """
+        # Load the directory into the playlist
+        self._playlist_manager.load_directory(directory, start_file)
+        
+        # Get the starting track
+        start_track = self._playlist_manager.current_track
+        if start_track:
+            return self.play(start_track)
+        return False
+    
+    def append_to_playlist(self, directory: str, start_file: Optional[Path] = None) -> bool:
+        """
+        Append all audio files from a directory to the current playlist.
+        If a start_file is provided, it will be set as the current track.
+        
+        Args:
+            directory: Path to the directory containing audio files.
+            start_file: Optional file to append and set as current.
+            
+        Returns:
+            True if files were appended successfully.
+        """
+        # Append the directory to the playlist
+        new_tracks = self._playlist_manager.append_directory(directory, start_file)
+        
+        # If start_file was provided and we should play it
+        if start_file:
+            start_track = self._playlist_manager.current_track
+            if start_track:
+                return self.play(start_track)
+        
+        return len(new_tracks) > 0
+    
+    def next_track(self) -> bool:
+        """
+        Skip to the next track in the playlist.
+        
+        Returns:
+            True if there was a next track and it was loaded successfully.
+        """
+        next_track = self._playlist_manager.get_next_track()
+        if next_track:
+            return self.play(next_track)
+        return False
+    
+    def previous_track(self) -> bool:
+        """
+        Go to the previous track in the playlist.
+        
+        Returns:
+            True if there was a previous track and it was loaded successfully.
+        """
+        prev_track = self._playlist_manager.get_previous_track()
+        if prev_track:
+            return self.play(prev_track)
+        return False
+    
+    def clear_playlist(self) -> None:
+        """Clear the current playlist."""
+        self._playlist_manager.clear()
+        self.stop()

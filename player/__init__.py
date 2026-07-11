@@ -8,5 +8,6 @@ that allows different UI implementations (terminal, GUI, etc.) to control playba
 from .player_interface import PlayerInterface
 from .pygame_player import PygamePlayer
 from .player_state import PlayerState, PlaybackStatus
+from .playlist import PlaylistManager
 
-__all__ = ['PlayerInterface', 'PygamePlayer', 'PlayerState', 'PlaybackStatus']
+__all__ = ['PlayerInterface', 'PygamePlayer', 'PlayerState', 'PlaybackStatus', 'PlaylistManager']
