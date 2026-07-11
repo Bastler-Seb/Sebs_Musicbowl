@@ -1,9 +1,9 @@
 # Sebs_Musicbowl
 A simple terminal-based music player written in Python.
 
-## Version 1.0 (Rewrite)
+## Version 0.1
 
-A minimal terminal music player that plays audio files from a specified filepath.
+A minimal terminal music player that plays audio files.
 
 ### Features
 - Play MP3, WAV, OGG, and other supported audio formats
