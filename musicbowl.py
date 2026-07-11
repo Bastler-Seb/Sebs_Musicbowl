@@ -124,16 +124,39 @@ def select_file_ui(start_dir=None):
             time.sleep(0.1)
             continue
         
-        # Handle keys
-        if key == 'q':
-            return None
-        elif key == '\x1b':  # ESC or arrow key prefix
-            if USE_READCHAR:
-                # ESC pressed - go up
+        # Handle keys - check readchar keys first if available
+        if USE_READCHAR:
+            # readchar returns key objects
+            if key == readchar.key.UP:
+                selected_index = max(0, selected_index - 1)
+            elif key == readchar.key.DOWN:
+                selected_index = min(len(items) - 1 if items else 0, selected_index + 1)
+            elif key == readchar.key.RIGHT:
+                if items and items[selected_index]['type'] == 'dir':
+                    current_dir = items[selected_index]['path']
+                    selected_index = 0
+            elif key == readchar.key.LEFT:
                 current_dir = os.path.dirname(current_dir)
                 selected_index = 0
-            else:
-                # Check if this is the start of an arrow key sequence
+            elif key == readchar.key.ENTER:
+                if items and selected_index < len(items):
+                    if items[selected_index]['type'] == 'dir':
+                        current_dir = items[selected_index]['path']
+                        selected_index = 0
+                    else:
+                        return items[selected_index]['path']
+            elif key == readchar.key.ESC:
+                current_dir = os.path.dirname(current_dir)
+                selected_index = 0
+            elif key == 'q':
+                return None
+            elif key == '\x03':  # Ctrl+C
+                return None
+        else:
+            # Non-readchar mode (msvcrt or fallback)
+            if key == 'q':
+                return None
+            elif key == '\x1b':  # ESC or start of arrow sequence
                 try:
                     import msvcrt
                     import time
@@ -153,6 +176,10 @@ def select_file_ui(start_dir=None):
                             elif next_next == b'D':  # Left
                                 current_dir = os.path.dirname(current_dir)
                                 selected_index = 0
+                        else:
+                            # Just ESC
+                            current_dir = os.path.dirname(current_dir)
+                            selected_index = 0
                     else:
                         # Just ESC
                         current_dir = os.path.dirname(current_dir)
@@ -160,51 +187,26 @@ def select_file_ui(start_dir=None):
                 except:
                     current_dir = os.path.dirname(current_dir)
                     selected_index = 0
-        elif key in ('\r', '\n'):  # Enter
-            if items and selected_index < len(items):
-                if items[selected_index]['type'] == 'dir':
-                    current_dir = items[selected_index]['path']
-                    selected_index = 0
-                else:
-                    return items[selected_index]['path']
-        elif key == '\x03':  # Ctrl+C
-            return None
-        elif key == '\x08' or key == '\x7f':  # Backspace/Delete
-            current_dir = os.path.dirname(current_dir)
-            selected_index = 0
-        elif USE_READCHAR:
-            # Handle arrow keys with readchar
-            if key == readchar.key.UP:
-                selected_index = max(0, selected_index - 1)
-            elif key == readchar.key.DOWN:
-                selected_index = min(len(items) - 1 if items else 0, selected_index + 1)
-            elif key == readchar.key.RIGHT:
-                if items and items[selected_index]['type'] == 'dir':
-                    current_dir = items[selected_index]['path']
-                    selected_index = 0
-            elif key == readchar.key.LEFT or key == readchar.key.ESC:
-                current_dir = os.path.dirname(current_dir)
-                selected_index = 0
-            elif key == readchar.key.ENTER:
+            elif key in ('\r', '\n'):  # Enter
                 if items and selected_index < len(items):
                     if items[selected_index]['type'] == 'dir':
                         current_dir = items[selected_index]['path']
                         selected_index = 0
                     else:
                         return items[selected_index]['path']
-        else:
-            # Handle numeric input fallback
-            try:
-                import msvcrt
-                if key.isdigit() and items and int(key) <= len(items):
-                    selected_item = items[int(key) - 1] if int(key) > 0 else items[0]
-                    if selected_item['type'] == 'dir':
-                        current_dir = selected_item['path']
-                        selected_index = 0
-                    else:
-                        return selected_item['path']
-            except:
-                pass
+            elif key == '\x03':  # Ctrl+C
+                return None
+            elif key == '\x08' or key == '\x7f':  # Backspace/Delete
+                current_dir = os.path.dirname(current_dir)
+                selected_index = 0
+            elif key.isdigit() and items and int(key) <= len(items):
+                # Numeric selection
+                selected_item = items[int(key) - 1] if int(key) > 0 else items[0]
+                if selected_item['type'] == 'dir':
+                    current_dir = selected_item['path']
+                    selected_index = 0
+                else:
+                    return selected_item['path']
 
 
 def print_controls():
