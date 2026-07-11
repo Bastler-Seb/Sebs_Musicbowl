@@ -24,6 +24,7 @@ from utils.file_utils import (
     validate_audio_filepath, clear_screen, extract_audio_metadata
 )
 from utils.input_utils import read_key
+from utils.settings import get_settings
 
 
 # Constants
@@ -55,6 +56,8 @@ class TerminalUI(UIInterface):
         self._selected_index: int = 0
         self._scroll_position: int = 0
         self._items: list[FileItem] = []
+        self._settings_dialog_active: bool = False
+        self._settings_input: str = ""
     
     def run(self, player: PlayerInterface, start_file: Optional[Path] = None) -> None:
         """
@@ -70,8 +73,10 @@ class TerminalUI(UIInterface):
         self._setup_curses()
         
         try:
-            # Set initial directory
-            self._current_dir = self._start_dir if self._start_dir else os.getcwd()
+            # Set initial directory - use settings default if available
+            settings = get_settings()
+            default_dir = settings.get_default_directory()
+            self._current_dir = self._start_dir if self._start_dir else default_dir
             self._load_items()
             
             # If a start file is provided, play it
@@ -147,7 +152,7 @@ class TerminalUI(UIInterface):
         
         try:
             # Controls hint at the top
-            controls = "[Up/Down: Nav | Enter: Select | Left: Up | q: Quit]"
+            controls = "[Up/Down: Nav | Enter: Select | Left: Up | ESC: Settings | q: Quit]"
             self._stdscr.addstr(y, x, controls[:width])
             y += 1
             
@@ -336,10 +341,123 @@ class TerminalUI(UIInterface):
         except curses.error:
             pass
     
+    def _open_settings(self) -> None:
+        """Open the settings dialog."""
+        self._settings_dialog_active = True
+        self._settings_input = self._current_dir
+        
+    def _close_settings(self) -> None:
+        """Close the settings dialog."""
+        self._settings_dialog_active = False
+        self._settings_input = ""
+        # Hide cursor when closing settings
+        if self._stdscr:
+            curses.curs_set(0)
+        
+    def _save_settings(self) -> None:
+        """Save the settings and close the dialog."""
+        if self._settings_input.strip():
+            settings = get_settings()
+            # Expand tilde to home directory
+            expanded_path = os.path.expanduser(self._settings_input.strip())
+            if os.path.isdir(expanded_path):
+                settings.set_default_directory(expanded_path)
+                self._current_dir = expanded_path
+                self._load_items()
+                self.show_message("Settings saved!")
+            else:
+                self.show_message(f"Directory does not exist: {expanded_path}")
+        else:
+            self.show_message("Path cannot be empty")
+        self._close_settings()
+        
+    def _draw_settings_dialog(self) -> None:
+        """Draw the settings dialog over the main UI."""
+        if not self._settings_dialog_active or self._stdscr is None:
+            return
+            
+        height, width = self._stdscr.getmaxyx()
+        
+        # Create a centered dialog box
+        dialog_height = 7
+        dialog_width = min(width - 4, 60)
+        dialog_y = (height - dialog_height) // 2
+        dialog_x = (width - dialog_width) // 2
+        
+        # Draw dialog box
+        try:
+            # Top border
+            self._stdscr.addstr(dialog_y, dialog_x, "+" + "-" * (dialog_width - 2) + "+")
+            
+            # Middle lines
+            for i in range(1, dialog_height - 1):
+                self._stdscr.addstr(dialog_y + i, dialog_x, "|")
+                self._stdscr.addstr(dialog_y + i, dialog_x + dialog_width - 1, "|")
+            
+            # Bottom border
+            self._stdscr.addstr(dialog_y + dialog_height - 1, dialog_x, "+" + "-" * (dialog_width - 2) + "+")
+            
+            # Title
+            title = " SETTINGS "
+            self._stdscr.addstr(dialog_y, dialog_x + (dialog_width - len(title)) // 2, title, curses.A_BOLD)
+            
+            # Content
+            settings = get_settings()
+            current_default = settings.get_default_directory() or "Not set"
+            
+            self._stdscr.addstr(dialog_y + 2, dialog_x + 2, "Default Directory:")
+            self._stdscr.addstr(dialog_y + 3, dialog_x + 2, current_default[:dialog_width-6])
+            self._stdscr.addstr(dialog_y + 4, dialog_x + 2, "New Path: ")
+            
+            # Draw input cursor
+            input_x = dialog_x + 10
+            input_width = dialog_width - 12
+            input_display = self._settings_input[:input_width]
+            self._stdscr.addstr(dialog_y + 4, input_x, input_display)
+            
+            # Draw cursor and show it
+            cursor_pos = min(len(self._settings_input), input_width)
+            self._stdscr.move(dialog_y + 4, input_x + cursor_pos)
+            curses.curs_set(1)
+            
+            # Instructions
+            instructions = "[Enter: Save | ESC: Cancel]"
+            self._stdscr.addstr(dialog_y + dialog_height - 2, dialog_x + 2, instructions[:dialog_width-4])
+            
+        except curses.error:
+            curses.curs_set(0)
+            pass
+        
+    def _handle_settings_input(self, key: str) -> None:
+        """Handle key input in settings dialog."""
+        if key == 'enter':
+            self._save_settings()
+        elif key == 'esc':
+            self._close_settings()
+        elif key == 'backspace':
+            self._settings_input = self._settings_input[:-1]
+        elif key == 'delete':
+            # Remove character at cursor position
+            if len(self._settings_input) > 0:
+                self._settings_input = self._settings_input[:-1]
+        elif key == 'left':
+            # Handle cursor movement if needed
+            pass
+        elif key == 'right':
+            # Handle cursor movement if needed
+            pass
+        elif len(key) == 1:
+            self._settings_input += key
+            
     def _main_loop(self) -> None:
         """Main loop for the split-screen UI."""
         while True:
+            # Draw the UI
             self._display_split_screen()
+            
+            # Draw settings dialog if active
+            if self._settings_dialog_active:
+                self._draw_settings_dialog()
             
             key = self._stdscr.getch()
             
@@ -349,6 +467,11 @@ class TerminalUI(UIInterface):
             
             processed_key = self._map_key(key)
             if processed_key is None:
+                continue
+            
+            # If settings dialog is active, handle settings input
+            if self._settings_dialog_active:
+                self._handle_settings_input(processed_key)
                 continue
             
             if processed_key == 'q':
@@ -361,8 +484,10 @@ class TerminalUI(UIInterface):
                 self._move_selection(-SCROLL_STEP)
             elif processed_key == 'pagedown':
                 self._move_selection(SCROLL_STEP)
-            elif processed_key in ('left', 'esc'):
+            elif processed_key == 'left':
                 self._go_up_directory()
+            elif processed_key == 'esc':
+                self._open_settings()
             elif processed_key in ('enter', 'right'):
                 self._select_item()
             elif processed_key.isdigit():
@@ -439,12 +564,16 @@ class TerminalUI(UIInterface):
             13: 'enter',
             9: 'tab',
             32: ' ',
+            127: 'backspace',  # Backspace key
+            8: 'backspace',    # Alternative backspace
             curses.KEY_UP: 'up',
             curses.KEY_DOWN: 'down',
             curses.KEY_LEFT: 'left',
             curses.KEY_RIGHT: 'right',
             curses.KEY_PPAGE: 'pageup',
             curses.KEY_NPAGE: 'pagedown',
+            curses.KEY_BACKSPACE: 'backspace',
+            curses.KEY_DC: 'delete',
         }
         
         result = key_map.get(key)
