@@ -20,7 +20,7 @@ Controls while playing:
 
 File Selector Controls:
     ↑/↓ arrows   - Navigate items
-    →/Enter      - Enter directory or select file
+    Enter        - Select directory or file
     ←/ESC        - Go up one directory
     q            - Quit selector
 """
@@ -104,7 +104,7 @@ def select_file_ui(start_dir=None):
                 print(f"{prefix}{item['name']}{suffix}")
         
         print("-" * 50)
-        print("Controls: ↑/↓ - navigate, →/Enter - enter/select, ←/ESC - go up, q - quit")
+        print("Controls: ↑/↓ - navigate, Enter - select, ←/ESC - go up, q - quit")
         
         # Get key press
         key = None
@@ -158,23 +158,18 @@ def select_file_ui(start_dir=None):
             selected_index = max(0, selected_index - 1)
         elif key == 'DOWN' or (USE_READCHAR and key == readchar.key.DOWN):
             selected_index = min(len(items) - 1 if items else 0, selected_index + 1)
-        elif key == 'RIGHT' or (USE_READCHAR and key == readchar.key.RIGHT):
-            if items and items[selected_index]['type'] == 'dir':
-                current_dir = items[selected_index]['path']
-                selected_index = 0
-        elif key == 'LEFT' or (USE_READCHAR and key == readchar.key.LEFT):
+        elif key == 'LEFT' or (USE_READCHAR and key == readchar.key.LEFT) or key == 'ESC' or key == '\x1b' or (USE_READCHAR and key == readchar.key.ESC):
+            # Go up one directory
             current_dir = os.path.dirname(current_dir)
             selected_index = 0
         elif key == 'ENTER' or key in ('\r', '\n') or (USE_READCHAR and key == readchar.key.ENTER):
+            # Enter is the ONLY key that opens a directory or selects a file
             if items and selected_index < len(items):
                 if items[selected_index]['type'] == 'dir':
                     current_dir = items[selected_index]['path']
                     selected_index = 0
                 else:
                     return items[selected_index]['path']
-        elif key == 'ESC' or key == '\x1b' or (USE_READCHAR and key == readchar.key.ESC):
-            current_dir = os.path.dirname(current_dir)
-            selected_index = 0
         elif key.isdigit() and items and int(key) <= len(items):
             # Numeric selection fallback
             selected_item = items[int(key) - 1] if int(key) > 0 else items[0]

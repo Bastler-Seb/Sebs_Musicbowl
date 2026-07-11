@@ -41,7 +41,7 @@ python musicbowl.py
 - **h** - Show help/controls
 
 ### File Selector Controls
-- **↑/↓** - Navigate items
-- **→/Enter** - Enter directory or select file
+- **↑/↓** - Navigate items (move selection arrow)
+- **Enter** - Select directory or file (only Enter opens)
 - **←/ESC** - Go up one directory
 - **q** - Quit selector
