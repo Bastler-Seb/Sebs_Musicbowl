@@ -1,7 +1,7 @@
 """
 File Utilities Module
 
-Provides utilities for file operations, audio file detection, and directory scanning.
+Provides utilities for file operations, audio file detection, directory scanning, and metadata extraction.
 """
 
 import os
@@ -12,6 +12,16 @@ from typing import Optional, TypedDict
 # Type aliases
 FileItem = dict[str, str]
 KeyName = str
+
+# Metadata type definition
+class AudioMetadata(TypedDict, total=False):
+    """TypedDict for audio file metadata."""
+    artist: str
+    title: str
+    album: str
+    year: str
+    genre: str
+
 
 # Constants
 AUDIO_EXTENSIONS: frozenset[str] = frozenset({
@@ -89,3 +99,136 @@ def get_directory_contents(directory: str) -> list[FileItem]:
     dirs.sort(key=lambda x: x['name'].lower())
     files.sort(key=lambda x: x['name'].lower())
     return dirs + files
+
+
+def extract_audio_metadata(filepath: str) -> Optional[AudioMetadata]:
+    """Extract metadata from an audio file.
+    
+    Args:
+        filepath: Path to the audio file.
+        
+    Returns:
+        AudioMetadata dict with artist, title, album, year, genre,
+        or None if metadata cannot be extracted or file is not valid.
+        
+    Note:
+        Requires the 'mutagen' library to be installed.
+        Install with: pip install mutagen
+    """
+    if not validate_audio_filepath(filepath):
+        return None
+    
+    try:
+        from mutagen import File
+        from mutagen.id3 import ID3, ID3NoHeaderError
+        from mutagen.mp4 import MP4
+        from mutagen.flac import FLAC
+        from mutagen.oggopus import OggOpus
+        from mutagen.oggvorbis import OggVorbis
+    except ImportError:
+        print("Warning: 'mutagen' library is required for metadata extraction.", file=sys.stderr)
+        print("Install with: pip install mutagen", file=sys.stderr)
+        return None
+    
+    metadata: AudioMetadata = {}
+    
+    try:
+        audio_file = File(filepath)
+        
+        if audio_file is None:
+            return None
+        
+        # Handle ID3 tags (MP3)
+        if filepath.lower().endswith('.mp3'):
+            try:
+                audio_file = File(filepath)  # Use File() to get the audio object
+                tags = ID3(filepath)
+                metadata['artist'] = str(tags.get('TPE1', ['Unknown Artist'])[0]) if tags.get('TPE1') else 'Unknown Artist'
+                metadata['title'] = str(tags.get('TIT2', ['Unknown Title'])[0]) if tags.get('TIT2') else 'Unknown Title'
+                metadata['album'] = str(tags.get('TALB', ['Unknown Album'])[0]) if tags.get('TALB') else 'Unknown Album'
+                metadata['year'] = str(tags.get('TDRC', ['Unknown Year'])[0]) if tags.get('TDRC') else 'Unknown Year'
+                metadata['genre'] = str(tags.get('TCON', ['Unknown Genre'])[0]) if tags.get('TCON') else 'Unknown Genre'
+                
+            except ID3NoHeaderError:
+                # No ID3 tags found
+                pass
+        
+        # Handle MP4/M4A tags
+        elif filepath.lower().endswith(('.m4a', '.mp4')):
+            audio_file = File(filepath)
+            tags = MP4(filepath)
+            metadata['artist'] = str(tags.get('\xa9ART', ['Unknown Artist'])[0]) if tags.get('\xa9ART') else 'Unknown Artist'
+            metadata['title'] = str(tags.get('\xa9nam', ['Unknown Title'])[0]) if tags.get('\xa9nam') else 'Unknown Title'
+            metadata['album'] = str(tags.get('\xa9alb', ['Unknown Album'])[0]) if tags.get('\xa9alb') else 'Unknown Album'
+            metadata['year'] = str(tags.get('\xa9day', ['Unknown Year'])[0]) if tags.get('\xa9day') else 'Unknown Year'
+            metadata['genre'] = str(tags.get('\xa9gen', ['Unknown Genre'])[0]) if tags.get('\xa9gen') else 'Unknown Genre'
+        
+        # Handle FLAC tags
+        elif filepath.lower().endswith('.flac'):
+            audio_file = File(filepath)
+            tags = FLAC(filepath)
+            metadata['artist'] = str(tags.get('artist', ['Unknown Artist'])[0]) if tags.get('artist') else 'Unknown Artist'
+            metadata['title'] = str(tags.get('title', ['Unknown Title'])[0]) if tags.get('title') else 'Unknown Title'
+            metadata['album'] = str(tags.get('album', ['Unknown Album'])[0]) if tags.get('album') else 'Unknown Album'
+            metadata['year'] = str(tags.get('date', ['Unknown Year'])[0]) if tags.get('date') else 'Unknown Year'
+            metadata['genre'] = str(tags.get('genre', ['Unknown Genre'])[0]) if tags.get('genre') else 'Unknown Genre'
+        
+        # Handle OGG tags (Vorbis and Opus)
+        elif filepath.lower().endswith(('.ogg', '.opus')):
+            try:
+                tags = OggVorbis(filepath)
+            except:
+                tags = OggOpus(filepath)
+            
+            metadata['artist'] = str(tags.get('artist', ['Unknown Artist'])[0]) if tags.get('artist') else 'Unknown Artist'
+            metadata['title'] = str(tags.get('title', ['Unknown Title'])[0]) if tags.get('title') else 'Unknown Title'
+            metadata['album'] = str(tags.get('album', ['Unknown Album'])[0]) if tags.get('album') else 'Unknown Album'
+            metadata['year'] = str(tags.get('date', ['Unknown Year'])[0]) if tags.get('date') else 'Unknown Year'
+            metadata['genre'] = str(tags.get('genre', ['Unknown Genre'])[0]) if tags.get('genre') else 'Unknown Genre'
+        
+        # Handle WAV files (limited tagging support)
+        elif filepath.lower().endswith('.wav'):
+            # WAV files don't commonly have metadata, but we try with mutagen
+            if hasattr(audio_file, 'tags'):
+                tags = audio_file.tags
+                metadata['artist'] = str(tags.get('artist', ['Unknown Artist'])[0]) if tags and tags.get('artist') else 'Unknown Artist'
+                metadata['title'] = str(tags.get('title', ['Unknown Title'])[0]) if tags and tags.get('title') else 'Unknown Title'
+                metadata['album'] = str(tags.get('album', ['Unknown Album'])[0]) if tags and tags.get('album') else 'Unknown Album'
+                metadata['year'] = str(tags.get('date', ['Unknown Year'])[0]) if tags and tags.get('date') else 'Unknown Year'
+                metadata['genre'] = str(tags.get('genre', ['Unknown Genre'])[0]) if tags and tags.get('genre') else 'Unknown Genre'
+        
+        # Handle AAC files
+        elif filepath.lower().endswith('.aac'):
+            if hasattr(audio_file, 'tags'):
+                tags = audio_file.tags
+                metadata['artist'] = str(tags.get('artist', ['Unknown Artist'])[0]) if tags and tags.get('artist') else 'Unknown Artist'
+                metadata['title'] = str(tags.get('title', ['Unknown Title'])[0]) if tags and tags.get('title') else 'Unknown Title'
+                metadata['album'] = str(tags.get('album', ['Unknown Album'])[0]) if tags and tags.get('album') else 'Unknown Album'
+                metadata['year'] = str(tags.get('date', ['Unknown Year'])[0]) if tags and tags.get('date') else 'Unknown Year'
+                metadata['genre'] = str(tags.get('genre', ['Unknown Genre'])[0]) if tags and tags.get('genre') else 'Unknown Genre'
+        
+        # Generic fallback for any audio file
+        if not metadata and hasattr(audio_file, 'tags'):
+            tags = audio_file.tags
+            if tags:
+                metadata['artist'] = str(tags.get('artist', ['Unknown Artist'])[0]) if tags.get('artist') else 'Unknown Artist'
+                metadata['title'] = str(tags.get('title', ['Unknown Title'])[0]) if tags.get('title') else 'Unknown Title'
+                metadata['album'] = str(tags.get('album', ['Unknown Album'])[0]) if tags.get('album') else 'Unknown Album'
+                metadata['year'] = str(tags.get('date', ['Unknown Year'])[0]) if tags.get('date') else 'Unknown Year'
+                metadata['genre'] = str(tags.get('genre', ['Unknown Genre'])[0]) if tags.get('genre') else 'Unknown Genre'
+        
+        # Return metadata dict with defaults if no real metadata found
+        if not metadata:
+            # Return default metadata structure
+            return {
+                'artist': 'Unknown Artist',
+                'title': 'Unknown Title', 
+                'album': 'Unknown Album',
+                'year': 'Unknown Year',
+                'genre': 'Unknown Genre'
+            }
+        return metadata
+        
+    except Exception as e:
+        print(f"Warning: Could not extract metadata from {filepath!r}: {e}", file=sys.stderr)
+        return None

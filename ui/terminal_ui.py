@@ -21,7 +21,7 @@ from .ui_interface import UIInterface
 # Import utilities
 from utils.file_utils import (
     AUDIO_EXTENSIONS, FileItem, get_directory_contents, 
-    validate_audio_filepath, clear_screen
+    validate_audio_filepath, clear_screen, extract_audio_metadata
 )
 from utils.input_utils import read_key
 
@@ -247,12 +247,47 @@ class TerminalUI(UIInterface):
             self._stdscr.addstr(y, pad_x, controls_str[:inner_width], curses.A_UNDERLINE)
             y += 2
             
-            # Now Playing
+            # Now Playing and Metadata
             if state.current_file:
                 filename = os.path.basename(str(state.current_file))
                 now_playing = f"Now Playing: {filename}"
                 self._stdscr.addstr(y, pad_x, now_playing[:inner_width])
                 y += 1
+                
+                # Extract and display metadata
+                metadata = extract_audio_metadata(str(state.current_file))
+                metadata_displayed = False
+                if metadata:
+                    # Display metadata fields if available and not default values
+                    if metadata.get('title', 'Unknown Title') != 'Unknown Title':
+                        title_str = f"Title: {metadata['title']}"
+                        self._stdscr.addstr(y, pad_x, title_str[:inner_width])
+                        y += 1
+                        metadata_displayed = True
+                    if metadata.get('artist', 'Unknown Artist') != 'Unknown Artist':
+                        artist_str = f"Artist: {metadata['artist']}"
+                        self._stdscr.addstr(y, pad_x, artist_str[:inner_width])
+                        y += 1
+                        metadata_displayed = True
+                    if metadata.get('album', 'Unknown Album') != 'Unknown Album':
+                        album_str = f"Album: {metadata['album']}"
+                        self._stdscr.addstr(y, pad_x, album_str[:inner_width])
+                        y += 1
+                        metadata_displayed = True
+                    if metadata.get('year', 'Unknown Year') != 'Unknown Year':
+                        year_str = f"Year: {metadata['year']}"
+                        self._stdscr.addstr(y, pad_x, year_str[:inner_width])
+                        y += 1
+                        metadata_displayed = True
+                    if metadata.get('genre', 'Unknown Genre') != 'Unknown Genre':
+                        genre_str = f"Genre: {metadata['genre']}"
+                        self._stdscr.addstr(y, pad_x, genre_str[:inner_width])
+                        y += 1
+                        metadata_displayed = True
+                    
+                    # Add a separator after metadata if any was displayed
+                    if metadata_displayed:
+                        y += 1
             else:
                 self._stdscr.addstr(y, pad_x, "No file selected"[:inner_width])
                 y += 1
