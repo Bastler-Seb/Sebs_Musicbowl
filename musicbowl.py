@@ -17,6 +17,12 @@ Controls while playing:
     +   - Increase volume
     -   - Decrease volume
     h   - Show help
+
+Controls in file selector:
+    ↑/↓ arrows - Navigate files
+    Enter - Select file
+    ESC - Go up one directory
+    q - Quit
 """
 
 import sys
@@ -32,10 +38,141 @@ try:
 except ImportError:
     USE_READCHAR = False
 
+# Audio file extensions to look for
+AUDIO_EXTENSIONS = ['.mp3', '.wav', '.ogg', '.flac', '.aac', '.m4a', '.mp4', '.opus']
+
 
 def clear_screen():
     """Clear the terminal screen."""
     os.system('cls' if os.name == 'nt' else 'clear')
+
+
+def get_audio_files(directory):
+    """Recursively find all audio files in a directory."""
+    audio_files = []
+    for root, dirs, files in os.walk(directory):
+        # Skip hidden directories
+        dirs[:] = [d for d in dirs if not d.startswith('.')]
+        for file in files:
+            if any(file.lower().endswith(ext) for ext in AUDIO_EXTENSIONS):
+                full_path = os.path.join(root, file)
+                audio_files.append(full_path)
+    return sorted(audio_files)
+
+
+def select_file_ui(start_dir=None):
+    """Terminal UI for selecting an audio file."""
+    if start_dir is None:
+        start_dir = os.getcwd()
+    
+    if not os.path.isdir(start_dir):
+        start_dir = os.path.dirname(start_dir)
+    
+    clear_screen()
+    print("=" * 50)
+    print("  Sebs_Musicbowl - File Selector")
+    print("=" * 50)
+    print("\nNavigating: Press arrows to move, Enter to select, ESC to go up, q to quit")
+    print("-" * 50)
+    
+    current_dir = start_dir
+    selected_index = 0
+    
+    while True:
+        # Get audio files in current directory
+        audio_files = get_audio_files(current_dir)
+        
+        if not audio_files:
+            print(f"\nNo audio files found in: {current_dir}")
+            print("Press any key to go up...")
+            if USE_READCHAR:
+                readchar.readchar()
+            else:
+                try:
+                    import msvcrt
+                    msvcrt.getch()
+                except:
+                    input()
+            current_dir = os.path.dirname(current_dir)
+            if current_dir == os.path.dirname(current_dir):
+                current_dir = "/"
+            continue
+        
+        # Display files
+        clear_screen()
+        print("=" * 50)
+        print(f"  Current: {current_dir}")
+        print("=" * 50)
+        print("\nFiles:")
+        
+        for i, filepath in enumerate(audio_files):
+            filename = os.path.basename(filepath)
+            prefix = "  > " if i == selected_index else "     "
+            print(f"{prefix}{filename}")
+        
+        print("\n" + "-" * 50)
+        print("Controls: ↑/↓ arrows - navigate, Enter - select, ESC - up, q - quit")
+        
+        # Get key press
+        try:
+            if USE_READCHAR:
+                key = readchar.readchar()
+            else:
+                try:
+                    import msvcrt
+                    key = msvcrt.getch().decode('utf-8', errors='ignore')
+                except:
+                    key = input("Enter choice: ").strip()
+                    if key.isdigit() and int(key) < len(audio_files):
+                        return audio_files[int(key)]
+                    continue
+        except KeyboardInterrupt:
+            return None
+        
+        # Handle keys
+        if key == 'q':
+            return None
+        elif key == '\x1b':  # ESC - go up one directory
+            current_dir = os.path.dirname(current_dir)
+            if current_dir == os.path.dirname(current_dir):
+                current_dir = "/"
+            selected_index = 0
+        elif key in ('\r', '\n'):  # Enter - select file
+            return audio_files[selected_index]
+        elif key == '\x03':  # Ctrl+C
+            return None
+        elif key == '\x08' or key == '\x7f':  # Backspace/Delete - go up
+            current_dir = os.path.dirname(current_dir)
+            if current_dir == os.path.dirname(current_dir):
+                current_dir = "/"
+            selected_index = 0
+        elif hasattr(readchar, 'key') or USE_READCHAR:
+            # Handle arrow keys with readchar
+            if key == readchar.key.UP:
+                selected_index = max(0, selected_index - 1)
+            elif key == readchar.key.DOWN:
+                selected_index = min(len(audio_files) - 1, selected_index + 1)
+            elif key == readchar.key.ESC:
+                current_dir = os.path.dirname(current_dir)
+                if current_dir == os.path.dirname(current_dir):
+                    current_dir = "/"
+                selected_index = 0
+            elif key == readchar.key.ENTER:
+                return audio_files[selected_index]
+        else:
+            # Handle arrow keys with msvcrt or manual input
+            try:
+                import msvcrt
+                if key == '\xe0':  # Arrow key prefix
+                    next_key = msvcrt.getch()
+                    if next_key == b'H':  # Up arrow
+                        selected_index = max(0, selected_index - 1)
+                    elif next_key == b'P':  # Down arrow
+                        selected_index = min(len(audio_files) - 1, selected_index + 1)
+            except:
+                # Try numeric input
+                if key.isdigit() and int(key) < len(audio_files):
+                    return audio_files[int(key)]
 
 
 def print_controls():
@@ -221,11 +358,11 @@ def main():
             print(f"Error: File not found at '{filepath}'")
             sys.exit(1)
     else:
-        clear_screen()
-        print("=" * 50)
-        print("  Sebs_Musicbowl - Terminal Music Player")
-        print("=" * 50)
-        filepath = get_file_path()
+        # Use file selector UI
+        filepath = select_file_ui()
+        if filepath is None:
+            print("\nNo file selected. Exiting.")
+            sys.exit(0)
     
     # Play the music
     play_music(filepath)
