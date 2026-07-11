@@ -1,48 +1,66 @@
 # Sebs_Musicbowl
-A simple terminal-based music player written in Python.
+A modular terminal-based music player written in Python.
 
 ## Version 0.1
 
-A minimal terminal music player that plays audio files from a specified filepath.
+A terminal music player with a clean, modular architecture. Supports multiple audio formats with interactive keyboard controls, playlist management, and a file selector interface.
+
+### Architecture
+The player features a modular design that separates concerns:
+- **`main.py`** - Primary entry point with dependency injection
+- **`player/`** - Player backend with interface and Pygame implementation
+- **`ui/`** - User interface with terminal implementation
+- **`utils/`** - Helper utilities for input, settings, and file operations
+- **`musicbowl.py`** - Legacy entry point (delegates to `main.py` for backward compatibility)
 
 ### Features
-- Play MP3, WAV, OGG, FLAC, AAC, M4A, OPUS, and other supported audio formats
+- Play MP3, WAV, OGG, FLAC, AAC, M4A, OPUS, and other pygame-supported audio formats
 - Interactive keyboard controls while playing
-- Volume adjustment
+- Volume adjustment with configurable steps
 - Pause/Resume functionality
-- Terminal file selector UI with navigation
+- Terminal file selector UI with directory navigation
 - Recursive directory scanning for audio files
-- Settings dialog with persistent default directory configuration
+- Playlist management with next/previous track navigation
+- Settings dialog with persistent configuration
+- Modular design allows swapping UI or player implementations
 
 ### Requirements
-- Python 3.x
+- Python 3.7+
 - pygame library
-- readchar library (recommended for single-key input)
+- readchar library (for single-key input)
 
 ### Installation
 ```bash
+# Install dependencies
 pip install pygame readchar
 ```
 
 ### Usage
 ```bash
-# Play a file directly
-python musicbowl.py /path/to/your/music.mp3
+# Play a file directly using main.py (recommended)
+python main.py /path/to/your/music.mp3
 
-# Or run without arguments to be prompted for a file
-python musicbowl.py
+# Or run without arguments to open the file selector
+python main.py
+
+# Legacy entry point (backward compatible)
+python musicbowl.py [filepath]
 ```
 
-### Player Controls
+### Player Controls (while playing)
 - **SPACE** - Pause / Resume
-- **s** - Stop
+- **s** - Stop (return to selection)
+- **n** - Next track in playlist
+- **p** - Previous track in playlist
+- **c** - Clear playlist
+- **Left Arrow** - Stop (return to selection)
 - **q** - Quit
 - **+** - Increase volume
 - **-** - Decrease volume
 
 ### File Selector Controls
 - **↑/↓** - Navigate items
-- **Enter/→** - Select directory or file
+- **Enter/→** - Load directory as playlist and play from selected file
 - **←** - Go up one directory
 - **ESC** - Open settings dialog
 - **q** - Quit selector
@@ -52,3 +70,35 @@ python musicbowl.py
 - Configure your default opening directory for the file browser
 - Settings are saved in `~/.sebs_musicbowl/config.json`
 - Default opening directory is `/home` when no settings exist
+
+### Project Structure
+```
+Sebs_Musicbowl/
+├── main.py              # Main entry point with DI container
+├── musicbowl.py         # Legacy entry point (backward compatible)
+├── player/
+│   ├── __init__.py
+│   ├── player_interface.py   # Abstract player interface
+│   ├── player_state.py       # Player state enum
+│   ├── playlist.py           # Playlist management
+│   └── pygame_player.py      # Pygame implementation
+├── ui/
+│   ├── __init__.py
+│   ├── ui_interface.py       # Abstract UI interface
+│   └── terminal_ui.py        # Terminal UI implementation
+└── utils/
+    ├── __init__.py
+    ├── file_utils.py         # File scanning utilities
+    ├── input_utils.py        # Input handling
+    └── settings.py           # Configuration management
+```
+
+### Extending the Player
+To replace the terminal UI with a GUI:
+1. Implement the `UIInterface` in a new class (e.g., `PyQtUI`, `TkinterUI`)
+2. Replace `TerminalUI` with your new class in `main.py`'s `create_ui()` function
+3. The player logic remains unchanged
+
+Similarly, to use a different audio backend:
+1. Implement the `PlayerInterface` in a new class
+2. Replace `PygamePlayer` with your new class in `main.py`'s `create_player()` function
