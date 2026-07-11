@@ -243,7 +243,7 @@ class TerminalUI(UIInterface):
             y += 1
             
             # Controls (single line)
-            controls_str = "Controls: p: Pause | s: Stop | +: Inc Vol | -: Dec Vol | q: Quit"
+            controls_str = "Controls: SPACE: Pause | s: Stop | +: Inc Vol | -: Dec Vol | q: Quit"
             self._stdscr.addstr(y, pad_x, controls_str[:inner_width], curses.A_UNDERLINE)
             y += 2
             
@@ -367,7 +367,7 @@ class TerminalUI(UIInterface):
                 self._select_item()
             elif processed_key.isdigit():
                 self._select_by_number(int(processed_key))
-            elif processed_key == 'p':
+            elif processed_key == ' ':
                 self._current_player.toggle_pause()
             elif processed_key == 's':
                 self._current_player.stop()

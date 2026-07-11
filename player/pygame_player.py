@@ -132,13 +132,12 @@ class PygamePlayer(PlayerInterface):
             return False
             
         try:
+            # Update position before pausing (while still playing)
+            self._state.position = self.get_position()
             pygame.mixer.music.pause()
             self._paused = True
             self._playing = False
             self._pause_time = time.time()
-            
-            # Update position before pausing
-            self._state.position = self.get_position()
             self._state.status = PlaybackStatus.PAUSED
             self._notify_state_change(self._state)
             return True
@@ -319,6 +318,9 @@ class PygamePlayer(PlayerInterface):
             if self._duration > 0:
                 return min(elapsed, self._duration)
             return elapsed
+        elif self._paused:
+            # When paused, return the stored position from the state
+            return self._state.position
         return 0.0
     
     def get_duration(self) -> float:

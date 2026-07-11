@@ -13,7 +13,7 @@ Usage:
     If no filepath is provided, you will be prompted to enter one.
 
 Controls while playing:
-    p       - Pause / Resume
+    SPACE   - Pause / Resume
     s       - Stop (return to selection)
     Left    - Stop (return to selection)
     q       - Quit
