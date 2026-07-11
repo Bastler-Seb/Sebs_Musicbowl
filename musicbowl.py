@@ -23,7 +23,8 @@ Controls while playing:
 File Selector Controls:
     Up/Down arrows   - Navigate items
     Enter/Right      - Select directory or file
-    Left/ESC         - Go up one directory
+    Left             - Go up one directory
+    ESC              - Open settings dialog
     q                - Quit selector
 """
 
