@@ -1,7 +1,7 @@
 # Sebs_Musicbowl
 A simple terminal-based music player written in Python.
 
-## Version 1.0 (Rewrite)
+## Version 0.1
 
 A minimal terminal music player that plays audio files from a specified filepath.
 
@@ -12,6 +12,7 @@ A minimal terminal music player that plays audio files from a specified filepath
 - Pause/Resume functionality
 - Terminal file selector UI with navigation
 - Recursive directory scanning for audio files
+- Settings dialog with persistent default directory configuration
 
 ### Requirements
 - Python 3.x
@@ -38,10 +39,16 @@ python musicbowl.py
 - **q** - Quit
 - **+** - Increase volume
 - **-** - Decrease volume
-- **h** - Show help/controls
 
 ### File Selector Controls
-- **↑/↓** - Navigate items (move selection arrow)
-- **Enter** - Select directory or file (only Enter opens)
-- **←/ESC** - Go up one directory
+- **↑/↓** - Navigate items
+- **Enter/→** - Select directory or file
+- **←** - Go up one directory
+- **ESC** - Open settings dialog
 - **q** - Quit selector
+
+### Settings
+- Press **ESC** in the file selector to open the settings dialog
+- Configure your default opening directory for the file browser
+- Settings are saved in `~/.sebs_musicbowl/config.json`
+- Default opening directory is `/home` when no settings exist
