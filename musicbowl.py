@@ -106,64 +106,90 @@ def select_file_ui(start_dir=None):
         print("-" * 50)
         print("Controls: ↑/↓ - navigate, Enter - select, ←/ESC - go up, q - quit")
         
-        # Get key press
+        # Get key press - simplified unified approach
         key = None
         try:
             if USE_READCHAR:
                 key = readchar.readchar()
             else:
+                # Try msvcrt on Windows
                 try:
                     import msvcrt
                     if msvcrt.kbhit():
-                        raw_key = msvcrt.getch()
-                        if raw_key == b'\xe0' or raw_key == b'\x00':
-                            # Arrow key or function key prefix
-                            next_key = msvcrt.getch()
-                            if next_key == b'H':
-                                key = 'UP'
-                            elif next_key == b'P':
-                                key = 'DOWN'
-                            elif next_key == b'M':
-                                key = 'RIGHT'
-                            elif next_key == b'K':
-                                key = 'LEFT'
-                            elif next_key == b'\r':
-                                key = 'ENTER'
-                            else:
-                                key = 'ESC'
-                        elif raw_key == b'\x1b':
-                            key = 'ESC'
-                        elif raw_key == b'\r':
-                            key = 'ENTER'
-                        elif raw_key == b'\n':
-                            key = 'ENTER'
+                        raw = msvcrt.getch()
+                        # Handle arrow keys (prefix 0xE0 or 0x00)
+                        if raw in (b'\xe0', b'\x00'):
+                            next_raw = msvcrt.getch()
+                            # Windows arrow keys: H=Up, P=Down, M=Right, K=Left
+                            if next_raw == b'H':
+                                key = 'up'
+                            elif next_raw == b'P':
+                                key = 'down'
+                            elif next_raw == b'M':
+                                key = 'right'
+                            elif next_raw == b'K':
+                                key = 'left'
+                        elif raw == b'\r' or raw == b'\n':
+                            key = 'enter'
+                        elif raw == b'\x1b':
+                            key = 'esc'
+                        elif raw == b'q':
+                            key = 'q'
                         else:
-                            key = raw_key.decode('utf-8', errors='ignore')
-                except:
-                    pass
+                            key = raw.decode('utf-8', errors='ignore').lower()
+                except ImportError:
+                    # Unix without readchar - try termios
+                    try:
+                        import tty, termios, sys, select
+                        fd = sys.stdin.fileno()
+                        old = termios.tcgetattr(fd)
+                        tty.setraw(fd)
+                        r, _, _ = select.select([sys.stdin], [], [], 0.1)
+                        if r:
+                            ch = sys.stdin.read(1)
+                            if ch == '\x1b':
+                                # Escape sequence - read more
+                                if select.select([sys.stdin], [], [], 0.1)[0]:
+                                    ch2 = sys.stdin.read(1)
+                                    if ch2 == '[':
+                                        if select.select([sys.stdin], [], [], 0.1)[0]:
+                                            ch3 = sys.stdin.read(1)
+                                            if ch3 == 'A':
+                                                key = 'up'
+                                            elif ch3 == 'B':
+                                                key = 'down'
+                                            elif ch3 == 'C':
+                                                key = 'right'
+                                            elif ch3 == 'D':
+                                                key = 'left'
+                            else:
+                                key = 'esc'
+                            termios.tcsetattr(fd, termios.TCSADRAIN, old)
+                        else:
+                            termios.tcsetattr(fd, termios.TCSADRAIN, old)
+                    except:
+                        pass
         except KeyboardInterrupt:
             return None
         
+        # Handle keys - simple string comparisons
         if key is None:
             import time
-            time.sleep(0.1)
+            time.sleep(0.05)
             continue
         
-        # Handle keys
-        if key == 'q':
+        key_lower = key.lower() if isinstance(key, str) else str(key).lower()
+        
+        if key_lower == 'q' or key == '\x03':
             return None
-        elif key == '\x03':  # Ctrl+C
-            return None
-        elif key == 'UP' or (USE_READCHAR and key == readchar.key.UP):
+        elif key_lower in ('up',) or (USE_READCHAR and key == readchar.key.UP):
             selected_index = max(0, selected_index - 1)
-        elif key == 'DOWN' or (USE_READCHAR and key == readchar.key.DOWN):
+        elif key_lower in ('down',) or (USE_READCHAR and key == readchar.key.DOWN):
             selected_index = min(len(items) - 1 if items else 0, selected_index + 1)
-        elif key == 'LEFT' or (USE_READCHAR and key == readchar.key.LEFT) or key == 'ESC' or key == '\x1b' or (USE_READCHAR and key == readchar.key.ESC):
-            # Go up one directory
+        elif key_lower in ('left', 'esc', '\x1b') or (USE_READCHAR and key in (readchar.key.LEFT, readchar.key.ESC)):
             current_dir = os.path.dirname(current_dir)
             selected_index = 0
-        elif key == 'ENTER' or key in ('\r', '\n') or (USE_READCHAR and key == readchar.key.ENTER):
-            # Enter is the ONLY key that opens a directory or selects a file
+        elif key_lower in ('enter', '\r', '\n') or (USE_READCHAR and key == readchar.key.ENTER):
             if items and selected_index < len(items):
                 if items[selected_index]['type'] == 'dir':
                     current_dir = items[selected_index]['path']
@@ -171,7 +197,6 @@ def select_file_ui(start_dir=None):
                 else:
                     return items[selected_index]['path']
         elif key.isdigit() and items and int(key) <= len(items):
-            # Numeric selection fallback
             selected_item = items[int(key) - 1] if int(key) > 0 else items[0]
             if selected_item['type'] == 'dir':
                 current_dir = selected_item['path']
