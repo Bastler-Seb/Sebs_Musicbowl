@@ -23,6 +23,16 @@ import os
 import argparse
 import pygame
 import time
+import select
+import tty
+import termios
+
+# Platform-specific imports
+try:
+    import msvcrt
+    WINDOWS = True
+except ImportError:
+    WINDOWS = False
 
 
 def clear_screen():
@@ -54,10 +64,30 @@ def get_file_path():
         print("Please enter a valid file path.")
 
 
+def get_key_press():
+    """Check if a key was pressed and return it, otherwise return None."""
+    if WINDOWS:
+        if msvcrt.kbhit():
+            return msvcrt.getch().decode('utf-8', errors='ignore')
+        return None
+    else:
+        rlist, _, _ = select.select([sys.stdin], [], [], 0.1)
+        if rlist:
+            return sys.stdin.read(1)
+        return None
+
+
 def play_music(filepath):
     """Play the music file with interactive controls."""
     # Initialize pygame mixer
     pygame.mixer.init()
+    
+    # Setup terminal for Unix systems
+    old_settings = None
+    if not WINDOWS:
+        fd = sys.stdin.fileno()
+        old_settings = termios.tcgetattr(fd)
+        tty.setraw(fd)
     
     try:
         # Load the music file
@@ -80,50 +110,28 @@ def play_music(filepath):
         paused = False
         
         while running:
+            # Check if song finished naturally (not paused)
             if not pygame.mixer.music.get_busy() and not paused:
-                # Song finished playing
                 print("\nTrack finished.")
                 running = False
                 break
-                
+            
             # Check for user input
-            try:
-                # Use non-blocking input check
-                import msvcrt  # Windows
-                if msvcrt.kbhit():
-                    key = msvcrt.getch().decode('utf-8')
-            except ImportError:
-                # Unix-based systems
-                import sys
-                import select
-                import tty
-                import termios
-                
-                fd = sys.stdin.fileno()
-                old_settings = termios.tcgetattr(fd)
-                try:
-                    tty.setraw(sys.stdin.fileno())
-                    rlist, _, _ = select.select([sys.stdin], [], [], 0.1)
-                    if rlist:
-                        key = sys.stdin.read(1)
-                    else:
-                        key = None
-                finally:
-                    termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+            key = get_key_press()
             
             if key:
                 if key == 'p':
                     if paused:
                         pygame.mixer.music.unpause()
                         paused = False
-                        print("Resumed")
+                        print("\nResumed")
                     else:
                         pygame.mixer.music.pause()
                         paused = True
-                        print("Paused")
+                        print("\nPaused")
                 elif key == 's':
                     pygame.mixer.music.stop()
-                    print("Stopped")
+                    print("\nStopped")
                     running = False
                 elif key == 'q':
                     pygame.mixer.music.stop()
@@ -131,26 +139,26 @@ def play_music(filepath):
                 elif key == '+':
                     volume = min(1.0, volume + 0.1)
                     pygame.mixer.music.set_volume(volume)
-                    print(f"Volume: {int(volume * 100)}%")
+                    print(f"\nVolume: {int(volume * 100)}%")
                 elif key == '-':
                     volume = max(0.0, volume - 0.1)
                     pygame.mixer.music.set_volume(volume)
-                    print(f"Volume: {int(volume * 100)}%")
+                    print(f"\nVolume: {int(volume * 100)}%")
                 elif key.lower() == 'h':
                     clear_screen()
                     print(f"\nNow Playing: {os.path.basename(filepath)}")
                     print(f"Volume: {int(volume * 100)}%")
                     print_controls()
             
-            # Small delay to prevent CPU overload
-            time.sleep(0.1)
-            
     except pygame.error as e:
-        print(f"Error loading file: {e}")
+        print(f"\nError loading file: {e}")
         print("Please ensure the file is a supported audio format (MP3, WAV, OGG).")
     except KeyboardInterrupt:
         print("\nStopped by user.")
     finally:
+        # Restore terminal settings for Unix
+        if not WINDOWS and old_settings is not None:
+            termios.tcsetattr(sys.stdin.fileno(), termios.TCSADRAIN, old_settings)
         pygame.mixer.quit()
 
 
