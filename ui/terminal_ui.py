@@ -91,7 +91,7 @@ class TerminalUI(UIInterface):
         curses.noecho()
         curses.curs_set(0)
         self._stdscr.keypad(True)
-        self._stdscr.timeout(50)  # Non-blocking with 50ms timeout
+        self._stdscr.timeout(50)
     
     def _cleanup_curses(self) -> None:
         """Clean up curses resources."""
@@ -128,10 +128,10 @@ class TerminalUI(UIInterface):
         self._draw_file_tree(0, 0, height, split_pos)
         
         # Draw right panel - Player Menu
-        self._draw_player_menu(split_pos, 0, height, width - split_pos)
+        self._draw_player_menu(0, split_pos + 1, height, width - split_pos - 1)
         
         # Draw separator line
-        if split_pos < width:
+        if split_pos < width - 1:
             for y in range(height):
                 try:
                     self._stdscr.addch(y, split_pos, curses.ACS_VLINE)
@@ -146,8 +146,13 @@ class TerminalUI(UIInterface):
             return
         
         try:
+            # Controls hint at the top
+            controls = "[Up/Down: Nav | Enter: Select | Left: Up | q: Quit]"
+            self._stdscr.addstr(y, x, controls[:width])
+            y += 1
+            
             # Header
-            header = f" BROWSE: {self._current_dir[:width-12]} "
+            header = f" Directory: {self._current_dir[:width-12]}"
             self._stdscr.addstr(y, x, header[:width])
             y += 1
             
@@ -157,7 +162,7 @@ class TerminalUI(UIInterface):
             
             # Draw items
             if not self._items:
-                self._stdscr.addstr(y, x, "(No audio files or directories found)"[:width-1])
+                self._stdscr.addstr(y, x, "(No audio files or directories found)"[:width])
             else:
                 max_items = max(1, height - 4)
                 
@@ -176,41 +181,40 @@ class TerminalUI(UIInterface):
                     suffix = "/" if self._items[i]['type'] == 'dir' else ""
                     line = f"{prefix}{self._items[i]['name']}{suffix}"
                     try:
-                        self._stdscr.addstr(y + (i - self._scroll_position), x, line[:width-1])
+                        self._stdscr.addstr(y + (i - self._scroll_position), x, line[:width])
                     except curses.error:
                         pass
                 
                 # Scroll indicator
                 scroll_indicator = f"[{self._scroll_position + 1}-{min(self._scroll_position + max_items, len(self._items))}/{len(self._items)}]"
                 try:
-                    self._stdscr.addstr(height - 1, x, scroll_indicator[:width-1])
+                    self._stdscr.addstr(height - 1, x, scroll_indicator[:width])
                 except curses.error:
                     pass
         except curses.error:
             pass
-        
-        # Controls hint at the top
-        try:
-            controls = "[Up/Down: Nav | Enter: Select | Left: Up | q: Quit]"
-            self._stdscr.addstr(0, x, controls[:width-1])
-        except curses.error:
-            pass
     
-    def _draw_player_menu(self, x: int, y: int, height: int, width: int) -> None:
-        """Draw the player menu in the right panel."""
-        if width <= 0 or self._current_player is None:
+    def _draw_player_menu(self, y: int, x: int, height: int, width: int) -> None:
+        """Draw the player menu in the right panel with padding."""
+        if width <= 2 or self._current_player is None:
             return
         
         state = self._current_player.get_state()
         
+        # Pad the right panel: leave 1 space on left edge
+        pad_x = x + 1
+        inner_width = width - 2
+        if inner_width <= 0:
+            return
+        
         try:
             # Header
-            self._stdscr.addstr(y, x, " " + "=" * (min(width-2, MIN_WIDTH)))
+            self._stdscr.addstr(y, pad_x, "=" * min(inner_width, MIN_WIDTH))
             y += 1
-            title = "  Sebs_Musicbowl - Player  "
-            self._stdscr.addstr(y, x, title[:width-1], curses.A_BOLD)
+            title = "Sebs_Musicbowl - Player"
+            self._stdscr.addstr(y, pad_x, title[:inner_width], curses.A_BOLD)
             y += 1
-            self._stdscr.addstr(y, x, " " + "=" * (min(width-2, MIN_WIDTH)))
+            self._stdscr.addstr(y, pad_x, "=" * min(inner_width, MIN_WIDTH))
             y += 1
             y += 1
             
@@ -218,16 +222,16 @@ class TerminalUI(UIInterface):
             if state.current_file:
                 filename = os.path.basename(str(state.current_file))
                 now_playing = f"Now Playing: {filename}"
-                self._stdscr.addstr(y, x, now_playing[:width-2])
+                self._stdscr.addstr(y, pad_x, now_playing[:inner_width])
                 y += 1
             else:
-                self._stdscr.addstr(y, x, "No file selected"[:width-2])
+                self._stdscr.addstr(y, pad_x, "No file selected"[:inner_width])
                 y += 1
             
             # Volume
             volume_pct = int(state.volume * 100)
             volume_str = f"Volume: {volume_pct}%"
-            self._stdscr.addstr(y, x, volume_str[:width-2])
+            self._stdscr.addstr(y, pad_x, volume_str[:inner_width])
             y += 1
             
             # Status
@@ -238,32 +242,32 @@ class TerminalUI(UIInterface):
             elif state.is_stopped():
                 status = "Status: Stopped"
             elif state.has_error():
-                status = f"Status: Error"
+                status = "Status: Error"
             else:
                 status = "Status: Unknown"
             
             attr = curses.A_BOLD if state.is_playing() else 0
-            self._stdscr.addstr(y, x, status[:width-2], attr)
+            self._stdscr.addstr(y, pad_x, status[:inner_width], attr)
             y += 1
             y += 1
             
-            # Player Controls Menu
-            self._stdscr.addstr(y, x, "Controls:"[:width-2], curses.A_UNDERLINE)
+            # Controls
+            self._stdscr.addstr(y, pad_x, "Controls:", curses.A_UNDERLINE)
             y += 1
-            self._stdscr.addstr(y, x, "  p  - Pause / Resume"[:width-2])
+            self._stdscr.addstr(y, pad_x, "  p  - Pause / Resume"[:inner_width])
             y += 1
-            self._stdscr.addstr(y, x, "  s  - Stop"[:width-2])
+            self._stdscr.addstr(y, pad_x, "  s  - Stop"[:inner_width])
             y += 1
-            self._stdscr.addstr(y, x, "  +  - Increase volume"[:width-2])
+            self._stdscr.addstr(y, pad_x, "  +  - Increase volume"[:inner_width])
             y += 1
-            self._stdscr.addstr(y, x, "  -  - Decrease volume"[:width-2])
+            self._stdscr.addstr(y, pad_x, "  -  - Decrease volume"[:inner_width])
             y += 1
-            self._stdscr.addstr(y, x, "  q  - Quit"[:width-2])
+            self._stdscr.addstr(y, pad_x, "  q  - Quit"[:inner_width])
             y += 1
             y += 1
             
-            # Separator at bottom
-            self._stdscr.addstr(y, x, " " + "=" * (min(width-2, MIN_WIDTH)))
+            # Bottom separator
+            self._stdscr.addstr(y, pad_x, "=" * min(inner_width, MIN_WIDTH))
         except curses.error:
             pass
     
@@ -272,21 +276,16 @@ class TerminalUI(UIInterface):
         while True:
             self._display_split_screen()
             
-            # Get key with timeout
             key = self._stdscr.getch()
             
             if key == -1:
-                # Timeout, update display and continue
                 time.sleep(0.02)
                 continue
             
-            # Map curses key to string
             processed_key = self._map_key(key)
-            
             if processed_key is None:
                 continue
             
-            # Handle navigation keys (work in both file browser and player)
             if processed_key == 'q':
                 break
             elif processed_key == 'up':
@@ -303,7 +302,6 @@ class TerminalUI(UIInterface):
                 self._select_item()
             elif processed_key.isdigit():
                 self._select_by_number(int(processed_key))
-            # Player control keys
             elif processed_key == 'p':
                 self._current_player.toggle_pause()
             elif processed_key == 's':
@@ -320,11 +318,15 @@ class TerminalUI(UIInterface):
         
         self._selected_index = max(0, min(len(self._items) - 1, self._selected_index + delta))
         
-        # Adjust scroll position if needed
-        if self._selected_index < self._scroll_position:
-            self._scroll_position = self._selected_index
-        elif self._selected_index >= self._scroll_position + 20:
-            self._scroll_position = self._selected_index - 19
+        if self._stdscr:
+            height, width = self._stdscr.getmaxyx()
+            split_pos = self._get_split_position()
+            max_items = max(1, height - 4)
+            
+            if self._selected_index < self._scroll_position:
+                self._scroll_position = self._selected_index
+            elif self._selected_index >= self._scroll_position + max_items:
+                self._scroll_position = self._selected_index - max_items + 1
     
     def _go_up_directory(self) -> None:
         """Go up one directory level."""
@@ -343,7 +345,6 @@ class TerminalUI(UIInterface):
             self._current_dir = item['path']
             self._load_items()
         else:
-            # Play the selected audio file
             self._current_player.stop()
             self._current_player.play(Path(item['path']))
     
@@ -390,24 +391,10 @@ class TerminalUI(UIInterface):
         
         return None
     
-    # Methods for UIInterface compliance
     def select_file(self, start_dir: Optional[str] = None) -> Optional[str]:
-        """
-        Show a file selection dialog.
-        
-        In this split-screen UI, this is not used as the file selector
-        is always visible on the left. This method is kept for interface
-        compatibility.
-        
-        Args:
-            start_dir: Starting directory for file selection.
-            
-        Returns:
-            Path to the selected audio file, or None if cancelled.
-        """
+        """Select file for interface compatibility."""
         if start_dir is None:
             start_dir = os.getcwd()
-        
         items = get_directory_contents(start_dir)
         audio_files = [i['path'] for i in items if i['type'] == 'file']
         if audio_files:
@@ -415,48 +402,33 @@ class TerminalUI(UIInterface):
         return None
     
     def display_state(self, state: PlayerState) -> None:
-        """
-        Display the current player state.
-        
-        Args:
-            state: The current player state to display.
-        """
         pass
     
     def show_error(self, message: str) -> None:
-        """
-        Display an error message to the user.
-        
-        Args:
-            message: The error message to display.
-        """
         if self._stdscr:
             try:
                 height, width = self._stdscr.getmaxyx()
                 split_pos = self._get_split_position()
+                pad_x = split_pos + 2
+                inner_width = width - split_pos - 3
                 error_msg = f"ERROR: {message}"
-                self._stdscr.addstr(height - 1, split_pos + 1, error_msg[:width - split_pos - 2])
+                self._stdscr.addstr(height - 1, pad_x, error_msg[:inner_width])
                 self._stdscr.refresh()
                 time.sleep(2)
             except Exception:
                 pass
     
     def show_message(self, message: str) -> None:
-        """
-        Display a general message to the user.
-        
-        Args:
-            message: The message to display.
-        """
         if self._stdscr:
             try:
                 height, width = self._stdscr.getmaxyx()
                 split_pos = self._get_split_position()
-                self._stdscr.addstr(height - 1, split_pos + 1, message[:width - split_pos - 2])
+                pad_x = split_pos + 2
+                inner_width = width - split_pos - 3
+                self._stdscr.addstr(height - 1, pad_x, message[:inner_width])
                 self._stdscr.refresh()
             except Exception:
                 pass
     
     def cleanup(self) -> None:
-        """Clean up any resources used by the UI."""
         self._cleanup_curses()
