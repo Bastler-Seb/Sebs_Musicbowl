@@ -57,13 +57,8 @@ class TerminalUI(UIInterface):
         """
         self._current_player = player
         
-        # If a start file is provided, play it
-        if start_file is not None:
-            if self._play_file(start_file):
-                return
-        
         # Main loop for continuous playback
-        self._main_loop()
+        self._main_loop(start_file)
     
     def _play_file(self, file_path: Path) -> bool:
         """
@@ -92,8 +87,8 @@ class TerminalUI(UIInterface):
         # Playback loop
         while True:
             # Check if song finished
-            if not self._current_player.is_playing() and not self._current_player.get_state().is_paused():
-                state = self._current_player.get_state()
+            state = self._current_player.get_state()
+            if not self._current_player.is_playing() and not state.is_paused():
                 if state.status == PlaybackStatus.FINISHED:
                     self.show_message("\nTrack finished.")
                     return True
@@ -104,6 +99,11 @@ class TerminalUI(UIInterface):
             # Check for user input
             key = read_key()
             
+            if key is None:
+                # No key pressed, small delay to prevent CPU overload
+                time.sleep(0.05)
+                continue
+                
             if key == 'p':
                 self._current_player.toggle_pause()
                 state = self._current_player.get_state()
@@ -125,14 +125,17 @@ class TerminalUI(UIInterface):
                 state = self._current_player.get_state()
                 state.volume = new_volume
                 self._display_playback_state(state)
-            
-            # Small delay to prevent CPU overload
-            time.sleep(0.05)
     
-    def _main_loop(self) -> None:
+    def _main_loop(self, start_file: Optional[Path] = None) -> None:
         """Main loop for continuous file selection and playback."""
         start_dir = self._start_dir if self._start_dir else os.getcwd()
         
+        # If a start file is provided, play it first
+        if start_file is not None:
+            if not self._play_file(start_file):
+                return  # User wants to quit
+        
+        # Main loop
         while True:
             filepath = self.select_file(start_dir)
             if filepath is None:
