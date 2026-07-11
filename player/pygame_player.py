@@ -4,6 +4,8 @@ Pygame Player Implementation
 Concrete implementation of PlayerInterface using pygame for audio playback.
 """
 
+import time
+
 import pygame
 from pathlib import Path
 from typing import Optional
@@ -35,6 +37,9 @@ class PygamePlayer(PlayerInterface):
         self._paused: bool = False
         self._playing: bool = False
         self._state: PlayerState = PlayerState()
+        self._start_time: float = 0.0
+        self._pause_time: float = 0.0
+        self._duration: float = 0.0
         
         # Initialize pygame mixer (only once per class)
         self._initialize_pygame()
@@ -54,6 +59,18 @@ class PygamePlayer(PlayerInterface):
                 )
                 raise
     
+    def _get_audio_duration(self, filepath: str) -> float:
+        """Get the duration of an audio file in seconds."""
+        try:
+            # Try using pygame's Sound class to get duration
+            sound = pygame.mixer.Sound(filepath)
+            duration = sound.get_length()
+            sound = None  # Clean up
+            return duration
+        except Exception:
+            # If Sound fails, return 0
+            return 0.0
+    
     def play(self, file_path: Path) -> bool:
         """
         Start playing the specified audio file.
@@ -71,6 +88,9 @@ class PygamePlayer(PlayerInterface):
             # Stop current playback
             self.stop()
             
+            # Try to get duration using pygame's Sound class
+            self._duration = self._get_audio_duration(filepath_str)
+            
             # Load and play the file
             pygame.mixer.music.load(filepath_str)
             pygame.mixer.music.set_volume(self._volume)
@@ -79,6 +99,7 @@ class PygamePlayer(PlayerInterface):
             self._current_file = file_path
             self._playing = True
             self._paused = False
+            self._start_time = time.time()
             
             # Update state
             self._state = PlayerState(
@@ -86,7 +107,7 @@ class PygamePlayer(PlayerInterface):
                 status=PlaybackStatus.PLAYING,
                 volume=self._volume,
                 position=0.0,
-                duration=0.0  # Pygame doesn't easily provide duration
+                duration=self._duration
             )
             self._notify_state_change(self._state)
             
@@ -114,7 +135,10 @@ class PygamePlayer(PlayerInterface):
             pygame.mixer.music.pause()
             self._paused = True
             self._playing = False
+            self._pause_time = time.time()
             
+            # Update position before pausing
+            self._state.position = self.get_position()
             self._state.status = PlaybackStatus.PAUSED
             self._notify_state_change(self._state)
             return True
@@ -135,6 +159,8 @@ class PygamePlayer(PlayerInterface):
             pygame.mixer.music.unpause()
             self._paused = False
             self._playing = True
+            # Adjust start time by the duration of the pause
+            self._start_time = self._start_time + (time.time() - self._pause_time)
             
             self._state.status = PlaybackStatus.PLAYING
             self._notify_state_change(self._state)
@@ -156,6 +182,8 @@ class PygamePlayer(PlayerInterface):
             pygame.mixer.music.stop()
             self._playing = False
             self._paused = False
+            self._start_time = 0.0
+            self._pause_time = 0.0
             
             self._state.status = PlaybackStatus.STOPPED
             self._state.position = 0.0
@@ -256,6 +284,10 @@ class PygamePlayer(PlayerInterface):
                 self._state.status = PlaybackStatus.FINISHED
                 self._playing = False
         
+        # Update position from tracking
+        self._state.position = self.get_position()
+        self._state.duration = self._duration
+        
         return self._state
     
     def seek(self, position: float) -> bool:
@@ -281,6 +313,12 @@ class PygamePlayer(PlayerInterface):
         Returns:
             Current position in seconds, or 0.0 if not available.
         """
+        if self._playing and not self._paused and self._start_time > 0:
+            elapsed = time.time() - self._start_time
+            # Clamp to duration if we have one
+            if self._duration > 0:
+                return min(elapsed, self._duration)
+            return elapsed
         return 0.0
     
     def get_duration(self) -> float:
@@ -290,7 +328,7 @@ class PygamePlayer(PlayerInterface):
         Returns:
             Duration in seconds, or 0.0 if not available.
         """
-        return 0.0
+        return self._duration
     
     def is_playing(self) -> bool:
         """
