@@ -33,7 +33,7 @@ python musicbowl.py
 ```
 
 ### Player Controls
-- **p** - Pause / Resume
+- **SPACE** - Pause / Resume
 - **s** - Stop
 - **q** - Quit
 - **+** - Increase volume
