@@ -58,6 +58,9 @@ class TerminalUI(UIInterface):
         self._items: list[FileItem] = []
         self._settings_dialog_active: bool = False
         self._settings_input: str = ""
+        self._playlist_scroll_position: int = 0
+        self._focus_on_playlist: bool = False
+        self._playlist_selected_index: int = 0
     
     def run(self, player: PlayerInterface, start_file: Optional[Path] = None) -> None:
         """
@@ -97,6 +100,7 @@ class TerminalUI(UIInterface):
         curses.curs_set(0)
         self._stdscr.keypad(True)
         self._stdscr.timeout(50)
+        curses.mousemask(curses.ALL_MOUSE_EVENTS | curses.REPORT_MOUSE_POSITION)
     
     def _cleanup_curses(self) -> None:
         """Clean up curses resources."""
@@ -151,10 +155,30 @@ class TerminalUI(UIInterface):
             return
         
         try:
-            # Controls hint at the top
-            controls = "[Up/Down: Nav | Enter: Select | Left: Up | ESC: Settings | q: Quit]"
-            self._stdscr.addstr(y, x, controls[:width])
-            y += 1
+            # Controls hint at the top - break after every | to adapt to window width
+            focus_hint = "Playlist Focus" if self._focus_on_playlist else "File Tree Focus"
+            controls_str = f"[Up/Down: Nav | Enter: Play | a: Append | Left: Up | TAB: Switch | ESC: Settings | q: Quit] [{focus_hint}]"
+            
+            # Split by | and display with line breaks as needed
+            parts = controls_str.split(" | ")
+            current_line = ""
+            for part in parts:
+                if not current_line:
+                    test_line = part
+                else:
+                    test_line = f"{current_line} | {part}"
+                
+                if len(test_line) <= width:
+                    current_line = test_line
+                else:
+                    if current_line:
+                        self._stdscr.addstr(y, x, current_line[:width])
+                        y += 1
+                    current_line = part
+            
+            if current_line:
+                self._stdscr.addstr(y, x, current_line[:width])
+                y += 1
             
             # Header
             header = f" Directory: {self._current_dir[:width-12]}"
@@ -180,13 +204,14 @@ class TerminalUI(UIInterface):
                     self._scroll_position = self._selected_index - max_items + 1
                 
                 # Display visible items
+                attr = curses.A_DIM if self._focus_on_playlist else 0
                 for i in range(self._scroll_position, 
                                min(self._scroll_position + max_items, len(self._items))):
                     prefix = "> " if i == self._selected_index else "  "
                     suffix = "/" if self._items[i]['type'] == 'dir' else ""
                     line = f"{prefix}{self._items[i]['name']}{suffix}"
                     try:
-                        self._stdscr.addstr(y + (i - self._scroll_position), x, line[:width])
+                        self._stdscr.addstr(y + (i - self._scroll_position), x, line[:width], attr)
                     except curses.error:
                         pass
                 
@@ -247,10 +272,32 @@ class TerminalUI(UIInterface):
             y += 1
             y += 1
             
-            # Controls (single line)
-            controls_str = "Controls: SPACE: Pause | s: Stop | +: Inc Vol | -: Dec Vol | q: Quit"
-            self._stdscr.addstr(y, pad_x, controls_str[:inner_width], curses.A_UNDERLINE)
-            y += 2
+            # Controls - break after every | to adapt to window width
+            focus_text = "Playlist" if self._focus_on_playlist else "File Tree"
+            controls_str = f"Controls: SPACE: Pause | s: Stop | n: Next | p: Prev | c: Clear | a: Append | TAB: Focus({focus_text}) | +: Inc Vol | -: Dec Vol | q: Quit"
+            
+            # Split by | and display with line breaks as needed
+            parts = controls_str.split(" | ")
+            current_line = ""
+            for part in parts:
+                if not current_line:
+                    test_line = part
+                else:
+                    test_line = f"{current_line} | {part}"
+                
+                if len(test_line) <= inner_width:
+                    current_line = test_line
+                else:
+                    if current_line:
+                        self._stdscr.addstr(y, pad_x, current_line[:inner_width], curses.A_UNDERLINE)
+                        y += 1
+                    current_line = part
+            
+            if current_line:
+                self._stdscr.addstr(y, pad_x, current_line[:inner_width], curses.A_UNDERLINE)
+                y += 1
+            
+            y += 1  # Add blank line after controls
             
             # Now Playing and Metadata
             if state.current_file:
@@ -335,6 +382,86 @@ class TerminalUI(UIInterface):
             self._stdscr.addstr(y, pad_x, status[:inner_width], attr)
             y += 1
             y += 1
+            
+            # Playlist display
+            if self._current_player:
+                playlist_mgr = self._current_player.get_playlist_manager()
+                if playlist_mgr.has_tracks:
+                    # Calculate available height for playlist
+                    # We need space for: separator line + tracks + separator line
+                    available_height = height - y - 3  # -1 for top separator, -1 for bottom separator, -1 for margin
+                    
+                    # Separator line under status
+                    self._stdscr.addstr(y, pad_x, "-" * min(inner_width, MIN_WIDTH))
+                    y += 1
+                    
+                    # Calculate visible playlist items based on scroll position
+                    total_tracks = len(playlist_mgr.tracks)
+                    current_index = playlist_mgr.current_index
+                    
+                    # Ensure available_height is at least 1
+                    available_height = max(1, available_height)
+                    
+                    # Calculate max scroll position
+                    max_scroll = max(0, total_tracks - available_height)
+                    
+                    # Auto-scroll to keep selected track visible when playlist has focus
+                    if self._focus_on_playlist and available_height > 0:
+                        if self._playlist_selected_index < self._playlist_scroll_position:
+                            self._playlist_scroll_position = self._playlist_selected_index
+                        elif self._playlist_selected_index >= self._playlist_scroll_position + available_height:
+                            self._playlist_scroll_position = self._playlist_selected_index - available_height + 1
+                    
+                    # Clamp scroll position to valid range
+                    self._playlist_scroll_position = max(0, min(self._playlist_scroll_position, max_scroll))
+                    
+                    # Display visible tracks
+                    for i in range(self._playlist_scroll_position, min(self._playlist_scroll_position + available_height, total_tracks)):
+                        track = playlist_mgr.tracks[i]
+                        
+                        # Get metadata for the track
+                        metadata = extract_audio_metadata(str(track))
+                        if metadata:
+                            title = metadata.get('title', 'Unknown Title')
+                            artist = metadata.get('artist', 'Unknown Artist')
+                            if title != 'Unknown Title' or artist != 'Unknown Artist':
+                                display_text = f"{title} - {artist}"
+                            else:
+                                display_text = os.path.basename(str(track))
+                        else:
+                            display_text = os.path.basename(str(track))
+                        
+                        # Truncate if too long
+                        display_text = display_text[:inner_width]
+                        
+                        # Add indicator for current track and/or selected track
+                        if self._focus_on_playlist:
+                            # When playlist has focus, show selection
+                            if i == self._playlist_selected_index:
+                                display_text = f"> {display_text}"
+                                display_text = display_text[:inner_width]
+                                self._stdscr.addstr(y, pad_x, display_text, curses.A_BOLD)
+                            elif i == current_index:
+                                # Current playing track but not selected
+                                display_text = f"* {display_text}"
+                                display_text = display_text[:inner_width]
+                                self._stdscr.addstr(y, pad_x, display_text, curses.A_UNDERLINE)
+                            else:
+                                self._stdscr.addstr(y, pad_x, display_text)
+                        else:
+                            # When file tree has focus, just show current playing track
+                            if i == current_index:
+                                display_text = f"> {display_text}"
+                                display_text = display_text[:inner_width]
+                                self._stdscr.addstr(y, pad_x, display_text, curses.A_BOLD)
+                            else:
+                                self._stdscr.addstr(y, pad_x, display_text)
+                        
+                        y += 1
+                    
+                    # Add separator after playlist
+                    self._stdscr.addstr(y, pad_x, "-" * min(inner_width, MIN_WIDTH))
+                    y += 1
             
             # Bottom separator
             self._stdscr.addstr(y, pad_x, "=" * min(inner_width, MIN_WIDTH))
@@ -465,6 +592,11 @@ class TerminalUI(UIInterface):
                 time.sleep(0.02)
                 continue
             
+            # Handle mouse events first
+            if key == curses.KEY_MOUSE:
+                self._handle_mouse(key)
+                continue
+            
             processed_key = self._map_key(key)
             if processed_key is None:
                 continue
@@ -477,29 +609,72 @@ class TerminalUI(UIInterface):
             if processed_key == 'q':
                 break
             elif processed_key == 'up':
-                self._move_selection(-1)
+                if self._focus_on_playlist:
+                    self._move_playlist_selection(-1)
+                else:
+                    self._move_selection(-1)
             elif processed_key == 'down':
-                self._move_selection(1)
+                if self._focus_on_playlist:
+                    self._move_playlist_selection(1)
+                else:
+                    self._move_selection(1)
             elif processed_key == 'pageup':
-                self._move_selection(-SCROLL_STEP)
+                if self._focus_on_playlist:
+                    self._move_playlist_selection(-SCROLL_STEP)
+                else:
+                    self._move_selection(-SCROLL_STEP)
             elif processed_key == 'pagedown':
-                self._move_selection(SCROLL_STEP)
+                if self._focus_on_playlist:
+                    self._move_playlist_selection(SCROLL_STEP)
+                else:
+                    self._move_selection(SCROLL_STEP)
             elif processed_key == 'left':
                 self._go_up_directory()
             elif processed_key == 'esc':
                 self._open_settings()
             elif processed_key in ('enter', 'right'):
-                self._select_item()
+                if self._focus_on_playlist:
+                    self._select_playlist_track()
+                else:
+                    self._select_item()
             elif processed_key.isdigit():
                 self._select_by_number(int(processed_key))
             elif processed_key == ' ':
-                self._current_player.toggle_pause()
+                # If nothing is playing but we have a playlist, play from it
+                state = self._current_player.get_state()
+                if not state.is_playing() and not state.is_paused():
+                    playlist_mgr = self._current_player.get_playlist_manager()
+                    if playlist_mgr.has_tracks:
+                        if self._focus_on_playlist:
+                            # Play the selected track
+                            selected_track = playlist_mgr.tracks[self._playlist_selected_index]
+                            self._current_player.play(selected_track)
+                        else:
+                            # Play the first track in the playlist
+                            self._current_player.play(playlist_mgr.tracks[0])
+                    else:
+                        self._current_player.toggle_pause()
+                else:
+                    self._current_player.toggle_pause()
             elif processed_key == 's':
                 self._current_player.stop()
             elif processed_key == '+':
                 self._current_player.increase_volume(VOLUME_STEP)
             elif processed_key == '-':
                 self._current_player.decrease_volume(VOLUME_STEP)
+            elif processed_key == 'tab':
+                self._focus_on_playlist = not self._focus_on_playlist
+                if self._focus_on_playlist:
+                    self._reset_playlist_selection()
+            elif processed_key == 'n':
+                self._current_player.next_track()
+            elif processed_key == 'p':
+                self._current_player.previous_track()
+            elif processed_key == 'c':
+                self._current_player.clear_playlist()
+                self._current_player.stop()
+            elif processed_key == 'a':
+                self._append_selected_to_playlist()
     
     def _move_selection(self, delta: int) -> None:
         """Move the selection in the file tree by delta."""
@@ -507,6 +682,83 @@ class TerminalUI(UIInterface):
             return
         
         self._selected_index = max(0, min(len(self._items) - 1, self._selected_index + delta))
+    
+    def _scroll_playlist(self, delta: int) -> None:
+        """Scroll the playlist display by delta."""
+        if self._current_player:
+            playlist_mgr = self._current_player.get_playlist_manager()
+            if playlist_mgr.has_tracks:
+                total_tracks = len(playlist_mgr.tracks)
+                # We don't know the available height here, so just allow any positive value
+                # The display logic will clamp it properly
+                self._playlist_scroll_position = max(0, self._playlist_scroll_position + delta)
+                # But ensure it doesn't go beyond the total number of tracks
+                self._playlist_scroll_position = min(self._playlist_scroll_position, max(0, total_tracks - 1))
+    
+    def _move_playlist_selection(self, delta: int) -> None:
+        """Move the selection in the playlist by delta."""
+        if self._current_player:
+            playlist_mgr = self._current_player.get_playlist_manager()
+            if playlist_mgr.has_tracks:
+                total_tracks = len(playlist_mgr.tracks)
+                self._playlist_selected_index = max(0, min(total_tracks - 1, self._playlist_selected_index + delta))
+    
+    def _select_playlist_track(self) -> None:
+        """Select the currently highlighted playlist track and start playing it."""
+        if self._current_player:
+            playlist_mgr = self._current_player.get_playlist_manager()
+            if playlist_mgr.has_tracks and 0 <= self._playlist_selected_index < len(playlist_mgr.tracks):
+                track = playlist_mgr.tracks[self._playlist_selected_index]
+                self._current_player.play(track)
+    
+    def _reset_playlist_selection(self) -> None:
+        """Reset the playlist selection to the current playing track."""
+        if self._current_player:
+            playlist_mgr = self._current_player.get_playlist_manager()
+            if playlist_mgr.has_tracks:
+                self._playlist_selected_index = playlist_mgr.current_index
+    
+    def _handle_mouse(self, key: int) -> bool:
+        """Handle mouse events for playlist scrolling."""
+        if key != curses.KEY_MOUSE:
+            return False
+        
+        try:
+            # Get mouse event
+            mouse_id = curses.getmouse()
+            if mouse_id is None:
+                return True
+            
+            # Check if mouse is in the right panel (playlist area)
+            split_pos = self._get_split_position()
+            x_pos = mouse_id[1]  # x coordinate
+            
+            # Right panel starts at split_pos + 1 (after the separator line)
+            if x_pos <= split_pos:
+                # Mouse is in left panel (file tree), ignore
+                return True
+            
+            # Mouse is in right panel - handle scrolling
+            # mouse_id format: (id, x, y, z, bstate)
+            _, x, y, _, bstate = mouse_id
+            
+            # Check for mouse wheel events (button 4 = scroll up, button 5 = scroll down)
+            if bstate & curses.BUTTON4_PRESSED:
+                self._scroll_playlist(-1)
+                return True
+            elif bstate & curses.BUTTON5_PRESSED:
+                self._scroll_playlist(1)
+                return True
+            
+            # Check for mouse click in playlist area to switch focus
+            if bstate & curses.BUTTON1_PRESSED:
+                self._focus_on_playlist = True
+                return True
+            
+        except Exception:
+            pass
+        
+        return True
         
         if self._stdscr:
             height, width = self._stdscr.getmaxyx()
@@ -535,8 +787,33 @@ class TerminalUI(UIInterface):
             self._current_dir = item['path']
             self._load_items()
         else:
+            # Load all audio files in the directory as a playlist and start from clicked file
             self._current_player.stop()
-            self._current_player.play(Path(item['path']))
+            self._current_player.clear_playlist()
+            self._current_player.play_playlist(self._current_dir, Path(item['path']))
+            # Reset playlist scroll position and selection when new playlist is loaded
+            self._playlist_scroll_position = 0
+            self._playlist_selected_index = 0
+    
+    def _append_selected_to_playlist(self) -> None:
+        """Append the currently selected item (file or directory) to the playlist."""
+        if not self._items or self._selected_index >= len(self._items):
+            return
+        
+        item = self._items[self._selected_index]
+        playlist_mgr = self._current_player.get_playlist_manager()
+        old_count = len(playlist_mgr.tracks)
+        
+        if item['type'] == 'dir':
+            # Append all audio files from the selected directory
+            self._current_player.append_to_playlist(item['path'])
+        else:
+            # Append just the selected single audio file
+            playlist_mgr.add_track(Path(item['path']))
+        
+        # If this was the first item added, set it as selected
+        if old_count == 0:
+            self._playlist_selected_index = 0
     
     def _select_by_number(self, number: int) -> None:
         """Select an item by its number (1-9)."""
@@ -550,8 +827,12 @@ class TerminalUI(UIInterface):
                 self._current_dir = item['path']
                 self._load_items()
             else:
+                # Load all audio files in the directory as a playlist and start from clicked file
                 self._current_player.stop()
-                self._current_player.play(Path(item['path']))
+                self._current_player.clear_playlist()
+                self._current_player.play_playlist(self._current_dir, Path(item['path']))
+                # Reset playlist scroll position when new playlist is loaded
+                self._playlist_scroll_position = 0
     
     def _map_key(self, key: int) -> Optional[str]:
         """Map curses key code to string name."""
@@ -574,7 +855,15 @@ class TerminalUI(UIInterface):
             curses.KEY_NPAGE: 'pagedown',
             curses.KEY_BACKSPACE: 'backspace',
             curses.KEY_DC: 'delete',
+            curses.KEY_MOUSE: 'mouse',
         }
+        
+        # Handle Shift+Arrow keys (key codes may vary by terminal)
+        # Common values: Shift+Up=393, Shift+Down=401
+        if key == 393:
+            return 'shift_up'
+        elif key == 401:
+            return 'shift_down'
         
         result = key_map.get(key)
         if result is not None:

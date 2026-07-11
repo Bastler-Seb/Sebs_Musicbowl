@@ -15,6 +15,9 @@ Usage:
 Controls while playing:
     SPACE   - Pause / Resume
     s       - Stop (return to selection)
+    n       - Next track in playlist
+    p       - Previous track in playlist
+    c       - Clear playlist
     Left    - Stop (return to selection)
     q       - Quit
     +       - Increase volume
@@ -22,7 +25,7 @@ Controls while playing:
 
 File Selector Controls:
     Up/Down arrows   - Navigate items
-    Enter/Right      - Select directory or file
+    Enter/Right      - Load directory as playlist and play from selected file
     Left             - Go up one directory
     ESC              - Open settings dialog
     q                - Quit selector
