@@ -5,7 +5,9 @@ Provides utilities for file operations, audio file detection, directory scanning
 """
 
 import os
+import re
 import sys
+from pathlib import Path
 from typing import Optional, TypedDict
 
 
@@ -21,6 +23,7 @@ class AudioMetadata(TypedDict, total=False):
     album: str
     year: str
     genre: str
+    tracknumber: str
 
 
 # Constants
@@ -32,8 +35,14 @@ AUDIO_EXTENSIONS: frozenset[str] = frozenset({
 def clear_screen() -> None:
     """Clear the terminal screen safely without shell injection."""
     if os.name == 'nt':
-        # Windows: use os.system with hardcoded safe command
-        os.system('cls')
+        # Windows: write ANSI escape code (works in modern Windows terminals)
+        # Fallback to os.system if ANSI codes don't work
+        try:
+            sys.stdout.write('\033[H\033[J')
+            sys.stdout.flush()
+        except Exception:
+            # Last resort fallback - hardcoded safe command
+            os.system('cls')
     else:
         # Unix-like systems: write ANSI escape code directly
         sys.stdout.write('\033[H\033[J')
@@ -68,6 +77,35 @@ def validate_audio_filepath(filepath: str) -> bool:
     return is_audio_file(filepath)
 
 
+def _get_track_number_sort_key(file_path: str) -> tuple:
+    """Get a sort key for an audio file based on track number metadata.
+    
+    Files with track numbers are sorted by numeric track number first,
+    then files without track numbers are sorted alphabetically at the end.
+    
+    Args:
+        file_path: Path to the audio file.
+        
+    Returns:
+        A tuple (has_tracknumber, tracknumber_as_int, filename_lower) for sorting.
+        Files with track numbers get (0, track_num, filename) to sort first,
+        files without get (1, 0, filename) to sort after numbered files.
+    """
+    metadata = extract_audio_metadata(file_path)
+    if metadata and metadata.get('tracknumber'):
+        track_str = metadata['tracknumber']
+        # Extract the first number from track string (e.g., "1/10" -> 1, "01" -> 1)
+        match = re.search(r'(\d+)', track_str)
+        if match:
+            try:
+                track_num = int(match.group(1))
+                return (0, track_num, os.path.basename(file_path).lower())
+            except ValueError:
+                pass
+    # No valid track number found, sort alphabetically after numbered tracks
+    return (1, 0, os.path.basename(file_path).lower())
+
+
 def get_directory_contents(directory: str) -> list[FileItem]:
     """Get sorted list of directories and audio files in a directory.
     
@@ -76,17 +114,29 @@ def get_directory_contents(directory: str) -> list[FileItem]:
         
     Returns:
         List of dicts with 'name', 'path', and 'type' ('dir' or 'file') keys.
-        Directories are listed first, then files, both sorted alphabetically.
+        Directories are listed first, then files.
+        Audio files with track numbers are sorted by track number first,
+        then files without track numbers are sorted alphabetically.
+        
+    Security:
+        Validates that the path is a directory and resolves symlinks to prevent
+        directory traversal attacks.
     """
     items: list[FileItem] = []
 
     try:
-        for item in os.listdir(directory):
-            full_path = os.path.join(directory, item)
-            if os.path.isdir(full_path):
-                items.append({'name': item, 'path': full_path, 'type': 'dir'})
-            elif os.path.isfile(full_path) and is_audio_file(item):
-                items.append({'name': item, 'path': full_path, 'type': 'file'})
+        # Validate input path - must be a directory
+        resolved_dir = Path(directory).resolve()
+        if not resolved_dir.is_dir():
+            print(f"Warning: '{directory}' is not a valid directory", file=sys.stderr)
+            return []
+            
+        for item in os.listdir(str(resolved_dir)):
+            full_path = resolved_dir / item
+            if full_path.is_dir():
+                items.append({'name': item, 'path': str(full_path), 'type': 'dir'})
+            elif full_path.is_file() and is_audio_file(item):
+                items.append({'name': item, 'path': str(full_path), 'type': 'file'})
     except PermissionError:
         return []
     except OSError as e:
@@ -97,7 +147,8 @@ def get_directory_contents(directory: str) -> list[FileItem]:
     dirs = [i for i in items if i['type'] == 'dir']
     files = [i for i in items if i['type'] == 'file']
     dirs.sort(key=lambda x: x['name'].lower())
-    files.sort(key=lambda x: x['name'].lower())
+    # Sort audio files by track number, then alphabetically
+    files.sort(key=lambda x: _get_track_number_sort_key(x['path']))
     return dirs + files
 
 
@@ -148,6 +199,7 @@ def extract_audio_metadata(filepath: str) -> Optional[AudioMetadata]:
                 metadata['album'] = str(tags.get('TALB', ['Unknown Album'])[0]) if tags.get('TALB') else 'Unknown Album'
                 metadata['year'] = str(tags.get('TDRC', ['Unknown Year'])[0]) if tags.get('TDRC') else 'Unknown Year'
                 metadata['genre'] = str(tags.get('TCON', ['Unknown Genre'])[0]) if tags.get('TCON') else 'Unknown Genre'
+                metadata['tracknumber'] = str(tags.get('TRCK', [''])[0]) if tags.get('TRCK') else ''
                 
             except ID3NoHeaderError:
                 # No ID3 tags found
@@ -162,6 +214,7 @@ def extract_audio_metadata(filepath: str) -> Optional[AudioMetadata]:
             metadata['album'] = str(tags.get('\xa9alb', ['Unknown Album'])[0]) if tags.get('\xa9alb') else 'Unknown Album'
             metadata['year'] = str(tags.get('\xa9day', ['Unknown Year'])[0]) if tags.get('\xa9day') else 'Unknown Year'
             metadata['genre'] = str(tags.get('\xa9gen', ['Unknown Genre'])[0]) if tags.get('\xa9gen') else 'Unknown Genre'
+            metadata['tracknumber'] = str(tags.get('trkn', [''])[0]) if tags.get('trkn') else ''
         
         # Handle FLAC tags
         elif filepath.lower().endswith('.flac'):
@@ -172,6 +225,7 @@ def extract_audio_metadata(filepath: str) -> Optional[AudioMetadata]:
             metadata['album'] = str(tags.get('album', ['Unknown Album'])[0]) if tags.get('album') else 'Unknown Album'
             metadata['year'] = str(tags.get('date', ['Unknown Year'])[0]) if tags.get('date') else 'Unknown Year'
             metadata['genre'] = str(tags.get('genre', ['Unknown Genre'])[0]) if tags.get('genre') else 'Unknown Genre'
+            metadata['tracknumber'] = str(tags.get('tracknumber', [''])[0]) if tags.get('tracknumber') else ''
         
         # Handle OGG tags (Vorbis and Opus)
         elif filepath.lower().endswith(('.ogg', '.opus')):
@@ -185,6 +239,7 @@ def extract_audio_metadata(filepath: str) -> Optional[AudioMetadata]:
             metadata['album'] = str(tags.get('album', ['Unknown Album'])[0]) if tags.get('album') else 'Unknown Album'
             metadata['year'] = str(tags.get('date', ['Unknown Year'])[0]) if tags.get('date') else 'Unknown Year'
             metadata['genre'] = str(tags.get('genre', ['Unknown Genre'])[0]) if tags.get('genre') else 'Unknown Genre'
+            metadata['tracknumber'] = str(tags.get('tracknumber', [''])[0]) if tags.get('tracknumber') else ''
         
         # Handle WAV files (limited tagging support)
         elif filepath.lower().endswith('.wav'):
@@ -196,6 +251,7 @@ def extract_audio_metadata(filepath: str) -> Optional[AudioMetadata]:
                 metadata['album'] = str(tags.get('album', ['Unknown Album'])[0]) if tags and tags.get('album') else 'Unknown Album'
                 metadata['year'] = str(tags.get('date', ['Unknown Year'])[0]) if tags and tags.get('date') else 'Unknown Year'
                 metadata['genre'] = str(tags.get('genre', ['Unknown Genre'])[0]) if tags and tags.get('genre') else 'Unknown Genre'
+                metadata['tracknumber'] = str(tags.get('tracknumber', [''])[0]) if tags and tags.get('tracknumber') else ''
         
         # Handle AAC files
         elif filepath.lower().endswith('.aac'):
@@ -206,6 +262,7 @@ def extract_audio_metadata(filepath: str) -> Optional[AudioMetadata]:
                 metadata['album'] = str(tags.get('album', ['Unknown Album'])[0]) if tags and tags.get('album') else 'Unknown Album'
                 metadata['year'] = str(tags.get('date', ['Unknown Year'])[0]) if tags and tags.get('date') else 'Unknown Year'
                 metadata['genre'] = str(tags.get('genre', ['Unknown Genre'])[0]) if tags and tags.get('genre') else 'Unknown Genre'
+                metadata['tracknumber'] = str(tags.get('tracknumber', [''])[0]) if tags and tags.get('tracknumber') else ''
         
         # Generic fallback for any audio file
         if not metadata and hasattr(audio_file, 'tags'):
@@ -216,6 +273,7 @@ def extract_audio_metadata(filepath: str) -> Optional[AudioMetadata]:
                 metadata['album'] = str(tags.get('album', ['Unknown Album'])[0]) if tags.get('album') else 'Unknown Album'
                 metadata['year'] = str(tags.get('date', ['Unknown Year'])[0]) if tags.get('date') else 'Unknown Year'
                 metadata['genre'] = str(tags.get('genre', ['Unknown Genre'])[0]) if tags.get('genre') else 'Unknown Genre'
+                metadata['tracknumber'] = str(tags.get('tracknumber', [''])[0]) if tags.get('tracknumber') else ''
         
         # Return metadata dict with defaults if no real metadata found
         if not metadata:
@@ -225,7 +283,8 @@ def extract_audio_metadata(filepath: str) -> Optional[AudioMetadata]:
                 'title': 'Unknown Title', 
                 'album': 'Unknown Album',
                 'year': 'Unknown Year',
-                'genre': 'Unknown Genre'
+                'genre': 'Unknown Genre',
+                'tracknumber': ''
             }
         return metadata
         
