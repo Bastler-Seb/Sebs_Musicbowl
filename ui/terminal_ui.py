@@ -157,7 +157,10 @@ class TerminalUI(UIInterface):
         try:
             # Controls hint at the top - break after every | to adapt to window width
             focus_hint = "Playlist Focus" if self._focus_on_playlist else "File Tree Focus"
-            controls_str = f"[Up/Down: Nav | Enter: Play | a: Append | Left: Up | TAB: Switch | ESC: Settings | q: Quit] [{focus_hint}]"
+            if self._focus_on_playlist:
+                controls_str = f"[Up/Down: Nav | Enter: Play | Space: Pause | n: Next | p: Prev | c: Clear | TAB: Switch | +: Vol+ | -: Vol- | q: Quit] [{focus_hint}]"
+            else:
+                controls_str = f"[Up/Down: Nav | Enter: Play | a: Append | Left: Up | TAB: Switch | ESC: Settings | q: Quit] [{focus_hint}]"
             
             # Split by | and display with line breaks as needed
             parts = controls_str.split(" | ")
@@ -274,7 +277,10 @@ class TerminalUI(UIInterface):
             
             # Controls - break after every | to adapt to window width
             focus_text = "Playlist" if self._focus_on_playlist else "File Tree"
-            controls_str = f"Controls: SPACE: Pause | s: Stop | n: Next | p: Prev | c: Clear | a: Append | TAB: Focus({focus_text}) | +: Inc Vol | -: Dec Vol | q: Quit"
+            if self._focus_on_playlist:
+                controls_str = f"Controls: SPACE: Pause | s: Stop | n: Next | p: Prev | c: Clear | TAB: Focus({focus_text}) | +: Inc Vol | -: Dec Vol | q: Quit"
+            else:
+                controls_str = f"Controls: SPACE: Pause | s: Stop | n: Next | p: Prev | c: Clear | a: Append | TAB: Focus({focus_text}) | +: Inc Vol | -: Dec Vol | q: Quit"
             
             # Split by | and display with line breaks as needed
             parts = controls_str.split(" | ")
@@ -633,9 +639,11 @@ class TerminalUI(UIInterface):
                 else:
                     self._move_selection(SCROLL_STEP)
             elif processed_key == 'left':
-                self._go_up_directory()
+                if not self._focus_on_playlist:
+                    self._go_up_directory()
             elif processed_key == 'esc':
-                self._open_settings()
+                if not self._focus_on_playlist:
+                    self._open_settings()
             elif processed_key in ('enter', 'right'):
                 if self._focus_on_playlist:
                     self._select_playlist_track()
@@ -678,7 +686,8 @@ class TerminalUI(UIInterface):
                 self._current_player.clear_playlist()
                 self._current_player.stop()
             elif processed_key == 'a':
-                self._append_selected_to_playlist()
+                if not self._focus_on_playlist:
+                    self._append_selected_to_playlist()
     
     def _move_selection(self, delta: int) -> None:
         """Move the selection in the file tree by delta."""
