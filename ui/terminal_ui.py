@@ -485,15 +485,19 @@ class TerminalUI(UIInterface):
         """Save the settings and close the dialog."""
         if self._settings_input.strip():
             settings = get_settings()
-            # Expand tilde to home directory
-            expanded_path = os.path.expanduser(self._settings_input.strip())
-            if os.path.isdir(expanded_path):
-                settings.set_default_directory(expanded_path)
-                self._current_dir = expanded_path
-                self._load_items()
-                self.show_message("Settings saved!")
-            else:
-                self.show_message(f"Directory does not exist: {expanded_path}")
+            # Expand tilde to home directory and resolve to absolute path
+            try:
+                expanded_path = os.path.expanduser(self._settings_input.strip())
+                resolved_path = str(Path(expanded_path).resolve())
+                if os.path.isdir(resolved_path):
+                    settings.set_default_directory(resolved_path)
+                    self._current_dir = resolved_path
+                    self._load_items()
+                    self.show_message("Settings saved!")
+                else:
+                    self.show_message(f"Directory does not exist: {resolved_path}")
+            except (ValueError, OSError) as e:
+                self.show_message(f"Invalid directory path: {e}")
         else:
             self.show_message("Path cannot be empty")
         self._close_settings()
@@ -772,10 +776,15 @@ class TerminalUI(UIInterface):
     
     def _go_up_directory(self) -> None:
         """Go up one directory level."""
-        parent_dir = os.path.dirname(self._current_dir)
-        if parent_dir != self._current_dir:
-            self._current_dir = parent_dir
-            self._load_items()
+        try:
+            current_path = Path(self._current_dir)
+            parent_path = current_path.parent.resolve()
+            if str(parent_path) != str(current_path):
+                self._current_dir = str(parent_path)
+                self._load_items()
+        except (ValueError, OSError):
+            # If path resolution fails, stay in current directory
+            pass
     
     def _select_item(self) -> None:
         """Select the currently highlighted item."""
@@ -784,8 +793,16 @@ class TerminalUI(UIInterface):
         
         item = self._items[self._selected_index]
         if item['type'] == 'dir':
-            self._current_dir = item['path']
-            self._load_items()
+            try:
+                # Validate the directory path before changing
+                dir_path = Path(item['path'])
+                if dir_path.is_dir():
+                    self._current_dir = str(dir_path.resolve())
+                    self._load_items()
+                else:
+                    self.show_message(f"Not a valid directory: {item['path']}")
+            except (ValueError, OSError):
+                self.show_message(f"Invalid directory path: {item['path']}")
         else:
             # Load all audio files in the directory as a playlist and start from clicked file
             self._current_player.stop()
@@ -824,8 +841,16 @@ class TerminalUI(UIInterface):
         if 0 <= index < len(self._items):
             item = self._items[index]
             if item['type'] == 'dir':
-                self._current_dir = item['path']
-                self._load_items()
+                try:
+                    # Validate the directory path before changing
+                    dir_path = Path(item['path'])
+                    if dir_path.is_dir():
+                        self._current_dir = str(dir_path.resolve())
+                        self._load_items()
+                    else:
+                        self.show_message(f"Not a valid directory: {item['path']}")
+                except (ValueError, OSError):
+                    self.show_message(f"Invalid directory path: {item['path']}")
             else:
                 # Load all audio files in the directory as a playlist and start from clicked file
                 self._current_player.stop()

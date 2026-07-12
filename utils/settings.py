@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Optional, Dict, Any
 
 
-# Settings file path
+# Settings file path - use a safe, platform-independent location
 SETTINGS_DIR = Path.home() / ".sebs_musicbowl"
 SETTINGS_FILE = SETTINGS_DIR / "config.json"
 
@@ -55,21 +55,27 @@ class Settings:
             print(f"Warning: Could not save settings: {e}")
     
     def get_default_directory(self) -> Optional[str]:
-        """Get the default directory for the file browser. Defaults to /home."""
+        """Get the default directory for the file browser. Defaults to user's home directory."""
         default_dir = self._settings.get('default_directory')
-        # Validate that the directory exists
+        # Validate that the directory exists and is a directory
         if default_dir and os.path.isdir(default_dir):
-            return default_dir
-        # Default to /home
-        return "/home"
+            # Resolve to absolute path to avoid path traversal
+            return str(Path(default_dir).resolve())
+        # Default to user's home directory (platform-independent)
+        return str(Path.home())
     
     def set_default_directory(self, directory: str) -> None:
         """Set the default directory for the file browser."""
-        if os.path.isdir(directory):
-            self._settings['default_directory'] = directory
-            self._save()
-        else:
-            print(f"Warning: Directory does not exist: {directory}")
+        try:
+            # Validate the path is a directory and resolve to absolute path
+            resolved_path = str(Path(directory).resolve())
+            if os.path.isdir(resolved_path):
+                self._settings['default_directory'] = resolved_path
+                self._save()
+            else:
+                print(f"Warning: Directory does not exist: {directory}")
+        except (ValueError, OSError) as e:
+            print(f"Warning: Invalid directory path '{directory}': {e}")
     
     def get_volume(self) -> float:
         """Get the default volume."""
