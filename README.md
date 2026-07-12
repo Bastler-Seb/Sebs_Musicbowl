@@ -1,7 +1,7 @@
 # Sebs_Musicbowl
 A modular terminal-based music player written in Python.
 
-## Version 0.1
+## Version 1.0
 
 A terminal music player with a clean, modular architecture. Supports multiple audio formats with interactive keyboard controls, playlist management, and a file selector interface.
 
